@@ -2,7 +2,7 @@
 
 A weekly scheduled automation that exhausts your remaining Claude Pro token allowance before it resets — so you actually get your money's worth.
 
-Every Tuesday at 12:00 PM, it wakes up, checks how many tokens you have left, emails you a proposed plan, waits up to 2 hours for your input, then gets to work. No laptop required.
+Every Tuesday at 12:00 PM, it wakes up, checks how many tokens you have left, sends you a push notification with a proposed plan, waits up to 2 hours for your input, then gets to work. No laptop required.
 
 ---
 
@@ -11,9 +11,9 @@ Every Tuesday at 12:00 PM, it wakes up, checks how many tokens you have left, em
 1. **Activates** 18 hours before the weekly token reset (Tuesday 12:00 PM)
 2. **Assesses** remaining token budget via `/usage`
 3. **Picks a project** from [`project_agenda.md`](project_agenda.md), falling back to [`desires.md`](desires.md) if the agenda is empty
-4. **Emails you** a proposed plan — reply within 2 hours to redirect it, or let it decide
+4. **Notifies you** (ntfy push) with a proposed plan — reply within 2 hours to redirect it, or let it decide
 5. **Does the work** autonomously across as many sessions as needed until usage hits ~95%
-6. **Emails you a digest** of what it accomplished
+6. **Sends you a digest** of what it accomplished
 
 All execution happens server-side via Claude Code's scheduled remote agent infrastructure. Projects are worked on via GitHub so nothing needs to be running locally.
 
@@ -23,7 +23,7 @@ All execution happens server-side via Claude Code's scheduled remote agent infra
 
 ### Prerequisites
 - Claude Pro subscription
-- Gmail account with an app password (for email notifications)
+- The free [ntfy](https://ntfy.sh) app on your phone (for push notifications + replies)
 - GitHub account (for remote project access)
 
 ### One-time setup (on your laptop)
@@ -40,9 +40,15 @@ Edit the timezone if needed (default: `America/Toronto`). Everything else stays 
 **3. Set environment variables in the Claude Code harness**
 
 ```
-SENDER_EMAIL               Gmail address that sends notifications (e.g. saumspam@gmail.com)
-SENDER_APP_PASSWORD        app password for the sender account
-RECIPIENT_EMAIL            Gmail address that receives notifications (e.g. saumirah@gmail.com)```
+NTFY_TOPIC          topic the agent publishes to — subscribe to it in the ntfy app to
+                    receive notifications (e.g. accursed-tokens-saumirah-notify)
+NTFY_REPLY_TOPIC    topic you publish replies to — the agent polls it for your /usage %
+                    (e.g. accursed-tokens-saumirah-reply)
+```
+
+Pick random-enough topic names to avoid collisions with other ntfy.sh users; they act as
+shared secrets since anyone who knows a topic name can read and post to it. To reply, post
+to the reply topic from the ntfy app (or `curl -d "42%" https://ntfy.sh/$NTFY_REPLY_TOPIC`).
 
 **4. Fill in your projects and goals**
 

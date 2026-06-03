@@ -18,7 +18,7 @@ If the agenda has no eligible projects, read `desires.md` and synthesize a concr
 
 Draft a short plan (3–5 bullet points) for what you'll accomplish this session.
 
-Send it via email, asking the user to reply with their current `/usage` percentage:
+Send it as a push notification (ntfy.sh, over HTTPS — SMTP/IMAP are blocked in the remote env), asking the user to reply with their current `/usage` percentage. They get it in the ntfy app and reply by sending a message to the reply topic, which `notify.py poll` picks up:
 
 ```bash
 sent_at=$(python notify.py send "Accursed Tokens - week of $(date '+%b %-d')" "$(cat <<'MSG'
@@ -26,7 +26,7 @@ Here's what I'm planning to work on this week:
 
 <your plan here>
 
-Before I get started, open Claude Code and run /usage — then reply to this email with the percentage used (e.g. "42%"). You can also redirect me to a different project in the same reply.
+Before I get started, open Claude Code and run /usage — then reply on the ntfy reply topic with the percentage used (e.g. "42%"). You can also redirect me to a different project in the same reply.
 
 If I don't hear back in 2 hours, I'll check in again next week.
 MSG
@@ -41,12 +41,12 @@ MSG
 reply=$(python notify.py poll "Accursed Tokens - week of $(date '+%b %-d')" "$sent_at" 7200)
 ```
 
-- Exit code 1 (timeout): no reply received. Do not proceed — send a follow-up email letting the user know you'll try again next week, then stop.
+- Exit code 1 (timeout): no reply received. Do not proceed — send a follow-up notification letting the user know you'll try again next week, then stop.
 - Exit code 0: parse the reply for:
   - A usage percentage (e.g. "42%", "42", "42 percent") → calculate `tokens_remaining = (1 - pct/100) * weekly_limit` using `weekly_limit` from `calibration_result.json`
   - Any redirect instructions (different project, specific task, etc.)
 
-Load `stop_at_pct` from `config.toml` (default 95%). If the reported usage is already at or above `stop_at_pct`, send a short email saying the budget is nearly exhausted and stop.
+Load `stop_at_pct` from `config.toml` (default 95%). If the reported usage is already at or above `stop_at_pct`, send a short notification saying the budget is nearly exhausted and stop.
 
 ---
 
