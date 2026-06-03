@@ -56,7 +56,7 @@ The remote agent is Claude Code itself — no Python runtime needed at execution
 
 After setup, no laptop is required for any weekly run.
 
-1. **Notifications**: Nothing to set up — the agent notifies you via GitHub Issues using the `gh` CLI's ambient auth. Just make sure you're watching this repo / have GitHub mobile notifications enabled so new issues reach your phone, and reply by commenting on the issue.
+1. **Notifications**: The agent notifies you via GitHub Issues. Because GitHub suppresses notifications for your *own* activity, the issue must be authored by a *different* identity — a **GitHub App** acting as a bot. One-time setup: register a GitHub App with **Issues: Read & Write**, install it on this repo, generate a private key, and expose three env vars to the remote runtime — `ACCURSED_TOKENS_NOTIFY_GITHUB_APP_ID`, `ACCURSED_TOKENS_NOTIFY_GITHUB_APP_PRIVATE_KEY` (or `ACCURSED_TOKENS_NOTIFY_GITHUB_APP_PRIVATE_KEY_PATH`), and optionally `ACCURSED_TOKENS_NOTIFY_GITHUB_APP_INSTALLATION_ID` (auto-discovered if omitted). The bot then @-mentions and assigns you, which *does* push to your phone. Make sure GitHub mobile notifications are enabled, and reply by commenting on the issue. (If the App env vars are absent, `notify.py` falls back to the ambient `gh` identity — the CLI still works, but you won't get a push.)
 
 2. **GitHub repo**: Push this project to GitHub so the remote agent can access it.
 
@@ -205,7 +205,9 @@ Never schedule a new session when `/usage` ≥ `stop_at_pct` (default: 95.0). Th
 
 ## Notification Protocol
 
-All notification sending and reply polling is handled by `notify.py` via the `gh` CLI: `send` opens a GitHub issue (subject → title, body → body) and `poll` watches that issue's comments for a reply newer than the send time. This rides on GitHub's API, which works in the remote environment — unlike SMTP/IMAP (raw TCP, blocked) or ntfy.sh (denylists the remote cloud IP with a 403). It's genuinely two-way and needs no secrets: `gh` reuses the ambient GitHub auth the orchestrator already uses to push.
+All notification sending and reply polling is handled by `notify.py` via the `gh` CLI: `send` opens a GitHub issue (subject → title, body → body) and `poll` watches that issue's comments for a reply newer than the send time. This rides on GitHub's API, which works in the remote environment — unlike SMTP/IMAP (raw TCP, blocked) or ntfy.sh (denylists the remote cloud IP with a 403). It's genuinely two-way.
+
+**Identity:** GitHub does not notify you about your own actions, so an issue opened under your account never reaches your phone. `notify.py` therefore authenticates as a **GitHub App** (a distinct bot identity): it signs a 10-minute JWT with the App's private key, exchanges it for a 1-hour installation token, and opens the issue as `your-app[bot]`. The bot assigns/@-mentions you, and because the actor differs from the recipient, GitHub pushes the notification. The installation token is minted fresh per run and handed to `gh` via `GH_TOKEN`; the only durable secret is the App private key.
 
 **Send notification (open issue):**
 ```bash
@@ -218,9 +220,11 @@ reply=$(python notify.py poll "subject" "$sent_at" 7200)
 # exits 0 with reply body, or exits 1 on timeout
 ```
 
-**Auth:** `gh` must be authenticated with `repo` scope. This is ambient in the remote
-environment (same auth used to push) and configured on the user's laptop — no env vars or
-committed secrets. Verify with `gh auth status`.
+**Auth:** App mode needs `ACCURSED_TOKENS_NOTIFY_GITHUB_APP_ID` and the private key (`ACCURSED_TOKENS_NOTIFY_GITHUB_APP_PRIVATE_KEY`
+or `ACCURSED_TOKENS_NOTIFY_GITHUB_APP_PRIVATE_KEY_PATH`) in the remote environment; `ACCURSED_TOKENS_NOTIFY_GITHUB_APP_INSTALLATION_ID`
+is auto-discovered from the repo if unset. `gh` itself must still be authenticated (for
+`{owner}/{repo}` resolution); App mode overrides only the token used for the API calls.
+Verify base auth with `gh auth status`.
 
 ---
 

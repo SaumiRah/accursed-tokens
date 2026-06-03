@@ -18,7 +18,7 @@ If the agenda has no eligible projects, read `desires.md` and synthesize a concr
 
 Draft a short plan (3–5 bullet points) for what you'll accomplish this session.
 
-Open it as a GitHub issue (via `notify.py`, which uses the `gh` CLI — SMTP/IMAP are blocked and ntfy.sh denylists the cloud IP, but GitHub works in the remote env). The user gets a GitHub notification and replies with a comment on the issue, which `notify.py poll` picks up. `gh` must be authenticated (ambient in the remote env); verify with `gh auth status` first.
+Open it as a GitHub issue (via `notify.py`, which uses the `gh` CLI — SMTP/IMAP are blocked and ntfy.sh denylists the cloud IP, but GitHub works in the remote env). `notify.py` authors the issue as a **GitHub App bot** (so GitHub actually pushes you — it won't notify you about issues you author yourself); this needs `ACCURSED_TOKENS_NOTIFY_GITHUB_APP_ID` and the App private key in the env. The user gets a GitHub notification and replies with a comment on the issue, which `notify.py poll` picks up. Verify base auth with `gh auth status` first.
 
 ```bash
 sent_at=$(python notify.py send "Accursed Tokens - week of $(date '+%b %-d')" "$(cat <<'MSG'
@@ -47,6 +47,12 @@ reply=$(python notify.py poll "Accursed Tokens - week of $(date '+%b %-d')" "$se
   - Any redirect instructions (different project, specific task, etc.)
 
 Load `stop_at_pct` from `config.toml` (default 95%). If the reported usage is already at or above `stop_at_pct`, open a short issue saying the budget is nearly exhausted and stop.
+
+Once you've extracted the reply (or after a timeout), close the plan issue so it doesn't linger:
+
+```bash
+python notify.py close "Accursed Tokens - week of $(date '+%b %-d')" "Got it — starting work. I'll follow up with a digest."
+```
 
 ---
 

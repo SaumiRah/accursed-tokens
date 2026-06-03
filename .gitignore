@@ -1,3 +1,4 @@
 .env
 test_run.py
 __pycache__/
+*.pem
