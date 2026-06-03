@@ -23,6 +23,7 @@ poll exits 0 with the reply body, or exits 1 on timeout.
 """
 
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -33,6 +34,11 @@ from pathlib import Path
 # Within one orchestrator run, send() records the issue number here so poll()
 # can find it without a title search. Kept in tmp so it never lands in the repo.
 _STATE_FILE = Path(tempfile.gettempdir()) / "accursed_notify_issue.json"
+
+# GitHub user to @-mention and assign on each issue so they get a notification.
+# Note: GitHub suppresses notifications for your own actions, so this only pings
+# the user if the issue is authored by a *different* identity (e.g. a bot/app).
+MENTION = os.environ.get("NOTIFY_MENTION", "SaumiRah")
 
 
 def _gh_api(path, method="GET", fields=None):
@@ -56,8 +62,17 @@ def _parse_gh_time(s):
 def send(subject: str, body: str) -> datetime:
     """Open a GitHub issue and return the UTC datetime it was created."""
     sent_at = datetime.now(timezone.utc)
+    full_body = f"{body}\n\ncc @{MENTION}" if MENTION else body
     issue = _gh_api("repos/{owner}/{repo}/issues", "POST",
-                    {"title": subject, "body": body})
+                    {"title": subject, "body": full_body})
+    # Best-effort: also assign the user (another notification trigger). Ignore
+    # failures so a non-assignable user never blocks the notification itself.
+    if MENTION:
+        try:
+            _gh_api(f"repos/{{owner}}/{{repo}}/issues/{issue['number']}/assignees",
+                    "POST", {"assignees[]": MENTION})
+        except Exception as e:
+            print(f"[notify] could not assign @{MENTION}: {e}", file=sys.stderr)
     try:
         _STATE_FILE.write_text(json.dumps({"subject": subject, "number": issue["number"]}))
     except Exception:
