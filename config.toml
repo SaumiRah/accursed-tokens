@@ -2,13 +2,13 @@
 # Commit this file. Do NOT put secrets here — use environment variables.
 
 [schedule]
-# Weekly token reset: Wednesday ~01:30 AM
+# Weekly token reset: Wednesday ~06:00 AM
 reset_day = "wednesday"
-reset_time = "01:30"
+reset_time = "06:00"
 timezone = "Pacific Time"  # update to your local timezone
 
-# Cron fires 13 hours before reset: Tuesday 12:30 PM
-cron_expression = "30 12 * * TUE"
+# Cron fires 18 hours before reset: Tuesday 12:00 PM
+cron_expression = "0 12 * * TUE"
 
 [tokens]
 # Stop scheduling new sessions when /usage reaches this threshold.

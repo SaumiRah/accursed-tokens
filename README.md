@@ -2,13 +2,13 @@
 
 A weekly scheduled automation that exhausts your remaining Claude Pro token allowance before it resets — so you actually get your money's worth.
 
-Every Tuesday at 12:30 PM, it wakes up, checks how many tokens you have left, texts you a proposed plan, waits up to 2 hours for your input, then gets to work. No laptop required.
+Every Tuesday at 12:00 PM, it wakes up, checks how many tokens you have left, texts you a proposed plan, waits up to 2 hours for your input, then gets to work. No laptop required.
 
 ---
 
 ## How it works
 
-1. **Activates** 13 hours before the weekly token reset (Tuesday 12:30 PM)
+1. **Activates** 18 hours before the weekly token reset (Tuesday 12:00 PM)
 2. **Assesses** remaining token budget via `/usage`
 3. **Picks a project** from [`project_agenda.md`](project_agenda.md), falling back to [`desires.md`](desires.md) if the agenda is empty
 4. **Texts you** a proposed plan via SMS — reply within 2 hours to redirect it, or let it decide
@@ -64,7 +64,7 @@ Commit the resulting `calibration_result.json`.
 
 **6. Register the cron job**
 
-Use the `schedule` skill in Claude Code to register a weekly remote agent with cron expression `30 12 * * TUE`.
+Use the `schedule` skill in Claude Code to register a weekly remote agent with cron expression `0 12 * * TUE`.
 
 ---
 

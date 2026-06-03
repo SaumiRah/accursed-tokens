@@ -2,7 +2,7 @@
 
 ## Overview
 
-Accursed Tokens is a weekly scheduled automation that runs entirely server-side via Claude Code's remote agent infrastructure. It activates every Tuesday at 12:30 PM — 13 hours before the Wednesday 01:30 AM weekly token reset — assesses remaining token budget, notifies the user via SMS, waits up to 2 hours for direction, then autonomously works through a curated project agenda until the weekly token allowance is exhausted. No laptop required at runtime; all project work targets GitHub-hosted repos so the remote agent can clone, commit, and push without local filesystem access.
+Accursed Tokens is a weekly scheduled automation that runs entirely server-side via Claude Code's remote agent infrastructure. It activates every Tuesday at 12:00 PM — 18 hours before the Wednesday 06:00 AM weekly token reset — assesses remaining token budget, notifies the user via SMS, waits up to 2 hours for direction, then autonomously works through a curated project agenda until the weekly token allowance is exhausted. No laptop required at runtime; all project work targets GitHub-hosted repos so the remote agent can clone, commit, and push without local filesystem access.
 
 ---
 
@@ -14,7 +14,7 @@ The system runs entirely server-side via CronCreate. The user needs a laptop onl
 
 ```
 [CronCreate job — server-side]
-     │  fires Tuesday 12:30 PM (13h before Wednesday 01:30 AM reset)
+     │  fires Tuesday 12:00 PM (18h before Wednesday 06:00 AM reset)
      ▼
 [Remote Agent — Claude Code harness]
      │
@@ -250,11 +250,11 @@ All outputs are pushed to GitHub so the user can review them from any device.
 
 ## Scheduling
 
-- **Weekly reset**: Wednesday ~01:30 AM (confirmed from `/usage`)
-- **Cron fires**: Tuesday 12:30 PM — 13 hours before reset
-- **Cron expression**: `30 12 * * TUE`
+- **Weekly reset**: Wednesday ~06:00 AM (confirmed from `/usage`)
+- **Cron fires**: Tuesday 12:00 PM — 18 hours before reset
+- **Cron expression**: `0 12 * * TUE`
 - **Timezone**: configured in `config.toml`
-- **Reply window**: 2 hours → ~11 hours of work time before reset
+- **Reply window**: 2 hours → ~16 hours of work time before reset
 
 ---
 
@@ -271,7 +271,7 @@ See work_log.md on GitHub for details.
 
 ## Open Questions / Future Work
 
-- **Dynamic scheduling**: if `pct_used` is very low on Tuesday at noon, automatically push cron start to an earlier hour
+- **Dynamic scheduling**: if `pct_used` is very low on Tuesday at noon, automatically push cron start to an earlier hour or day
 - **Reply parsing**: NLP intent detection vs. simple keyword matching for user's SMS redirect
 - **Multi-project sessions**: interleave smaller projects within a session to granularly fill remaining budget
 - **Web UI**: a simple interface for editing `project_agenda.md` instead of raw markdown on GitHub
