@@ -2,7 +2,7 @@
 
 ## Overview
 
-Accursed Tokens is a weekly scheduled automation that runs entirely server-side via Claude Code's remote agent infrastructure. It activates every Tuesday at 12:00 PM — 18 hours before the Wednesday 06:00 AM weekly token reset — assesses remaining token budget, notifies the user via push notification (ntfy.sh), waits up to 2 hours for direction, then autonomously works through a curated project agenda until the weekly token allowance is exhausted. No laptop required at runtime; all project work targets GitHub-hosted repos so the remote agent can clone, commit, and push without local filesystem access.
+Accursed Tokens is a weekly scheduled automation that runs entirely server-side via Claude Code's remote agent infrastructure. It activates every Tuesday at 12:00 PM — 18 hours before the Wednesday 06:00 AM weekly token reset — assesses remaining token budget, notifies the user by opening a GitHub issue, waits up to 2 hours for direction, then autonomously works through a curated project agenda until the weekly token allowance is exhausted. No laptop required at runtime; all project work targets GitHub-hosted repos so the remote agent can clone, commit, and push without local filesystem access.
 
 ---
 
@@ -10,7 +10,7 @@ Accursed Tokens is a weekly scheduled automation that runs entirely server-side 
 
 ### Remote-first design
 
-The system runs entirely server-side via CronCreate. The user needs a laptop only once for the initial setup. Thereafter, everything — scheduling, push notification, project work, and digest — happens remotely.
+The system runs entirely server-side via CronCreate. The user needs a laptop only once for the initial setup. Thereafter, everything — scheduling, notification, project work, and digest — happens remotely.
 
 ```
 [CronCreate job — server-side]
@@ -21,15 +21,15 @@ The system runs entirely server-side via CronCreate. The user needs a laptop onl
      ├─► read project_agenda.md (from GitHub) → pick project(s)
      │       └─► fallback: desires.md
      │
-     ├─► ntfy push: "Plan: [project]. Reply with /usage % to pace work. 2h to redirect."
+     ├─► Open GitHub issue: "Plan: [project]. Comment /usage % to pace work. 2h to redirect."
      │
-     ├─► Poll ntfy reply topic (HTTPS) every 5 min for 120 min
+     ├─► Poll the issue's comments (gh CLI) every 5 min for 120 min
      │       └─► if reply → parse /usage %, redirect instructions, or "stop"
      │
      ├─► Clone target project repo → do work → commit + push → open PR if appropriate
      │       └─► repeat in new sessions until /usage ≥ 95%
      │
-     └─► ntfy digest + update work_log.md + push to this repo
+     └─► Open digest issue + update work_log.md + push to this repo
 ```
 
 The remote agent is Claude Code itself — no Python runtime needed at execution time. Helper scripts (`calibrate.py`, `notify.py`) run once on the laptop during setup; `notify.py` is also called by the orchestrator at runtime.
@@ -48,8 +48,7 @@ The remote agent is Claude Code itself — no Python runtime needed at execution
 | `calibration_log.json` | Per-session pct_before/pct_after history for ongoing refinement |
 | `work_log.md` | Append-only log of every session's output |
 | `config.toml` | Cron schedule, stop threshold — committed, no secrets |
-| `notify.py` | ntfy.sh publish + poll helpers (plain HTTPS) used by the orchestrator |
-| `.env` | ntfy topic config — NEVER committed; set as harness environment variables |
+| `notify.py` | GitHub-issue send + comment-poll helpers (via `gh` CLI) used by the orchestrator |
 
 ---
 
@@ -57,7 +56,7 @@ The remote agent is Claude Code itself — no Python runtime needed at execution
 
 After setup, no laptop is required for any weekly run.
 
-1. **ntfy topics**: Install the ntfy app and pick two random-enough topic names (they act as shared secrets — anyone who knows a topic name can read and post to it): one the agent publishes to (you subscribe to receive), one you publish replies to (the agent polls). Set `NTFY_TOPIC` and `NTFY_REPLY_TOPIC` as environment variables in the Claude Code harness settings (not stored in files).
+1. **Notifications**: Nothing to set up — the agent notifies you via GitHub Issues using the `gh` CLI's ambient auth. Just make sure you're watching this repo / have GitHub mobile notifications enabled so new issues reach your phone, and reply by commenting on the issue.
 
 2. **GitHub repo**: Push this project to GitHub so the remote agent can access it.
 
@@ -131,16 +130,16 @@ The remote agent follows this sequence each Tuesday:
 Accursed Tokens activated.
 Plan: {project_name} — {short_description}.
 
-Reply on the ntfy reply topic within 2h to:
+Comment on this issue within 2h to:
 - Give your current /usage % (e.g. "42%") so I can pace the work
 - Redirect to a different project
 - "stop" to cancel this week
 Or ignore this to let me run until I run out of tokens.
 ```
-Send via `python notify.py send` (publishes to `NTFY_TOPIC` over HTTPS).
+Send via `python notify.py send` (opens a GitHub issue via the `gh` CLI).
 
 ### 4. WAIT
-- Poll the ntfy reply topic (`NTFY_REPLY_TOPIC`, HTTPS) every 5 minutes for up to 120 minutes via `python notify.py poll`
+- Poll the issue's comments (via `gh`) every 5 minutes for up to 120 minutes via `python notify.py poll`
 - Parse reply for: usage % → compute token budget; redirect → update selected project; "stop" → cancel
 - If no reply after 120 minutes → proceed with no token budget constraint
 
@@ -206,22 +205,22 @@ Never schedule a new session when `/usage` ≥ `stop_at_pct` (default: 95.0). Th
 
 ## Notification Protocol
 
-All notification sending and reply polling is handled by `notify.py` using ntfy.sh over plain HTTPS (`urllib.request`) — no third-party packages needed. This avoids raw TCP, which the remote execution environment blocks (SMTP/IMAP hang; only 443 is reachable). Note: `send()` passes the subject as an HTTP `Title` header, which is latin-1 only, so subjects must stay ASCII.
+All notification sending and reply polling is handled by `notify.py` via the `gh` CLI: `send` opens a GitHub issue (subject → title, body → body) and `poll` watches that issue's comments for a reply newer than the send time. This rides on GitHub's API, which works in the remote environment — unlike SMTP/IMAP (raw TCP, blocked) or ntfy.sh (denylists the remote cloud IP with a 403). It's genuinely two-way and needs no secrets: `gh` reuses the ambient GitHub auth the orchestrator already uses to push.
 
-**Send notification:**
+**Send notification (open issue):**
 ```bash
 sent_at=$(python notify.py send "subject" "body")
 ```
 
-**Poll for reply:**
+**Poll for reply (issue comments):**
 ```bash
 reply=$(python notify.py poll "subject" "$sent_at" 7200)
 # exits 0 with reply body, or exits 1 on timeout
 ```
 
-**Environment variables** (set in harness, never in committed files):
-- `NTFY_TOPIC` — topic the agent publishes to; subscribe to it in the ntfy app to receive
-- `NTFY_REPLY_TOPIC` — topic you publish replies to; the agent polls it for your /usage %
+**Auth:** `gh` must be authenticated with `repo` scope. This is ambient in the remote
+environment (same auth used to push) and configured on the user's laptop — no env vars or
+committed secrets. Verify with `gh auth status`.
 
 ---
 

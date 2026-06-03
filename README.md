@@ -2,7 +2,7 @@
 
 A weekly scheduled automation that exhausts your remaining Claude Pro token allowance before it resets — so you actually get your money's worth.
 
-Every Tuesday at 12:00 PM, it wakes up, checks how many tokens you have left, sends you a push notification with a proposed plan, waits up to 2 hours for your input, then gets to work. No laptop required.
+Every Tuesday at 12:00 PM, it wakes up, checks how many tokens you have left, opens a GitHub issue with a proposed plan, waits up to 2 hours for your reply, then gets to work. No laptop required.
 
 ---
 
@@ -11,7 +11,7 @@ Every Tuesday at 12:00 PM, it wakes up, checks how many tokens you have left, se
 1. **Activates** 18 hours before the weekly token reset (Tuesday 12:00 PM)
 2. **Assesses** remaining token budget via `/usage`
 3. **Picks a project** from [`project_agenda.md`](project_agenda.md), falling back to [`desires.md`](desires.md) if the agenda is empty
-4. **Notifies you** (ntfy push) with a proposed plan — reply within 2 hours to redirect it, or let it decide
+4. **Opens a GitHub issue** with a proposed plan — comment within 2 hours to redirect it (or your `/usage %`), or let it decide
 5. **Does the work** autonomously across as many sessions as needed until usage hits ~95%
 6. **Sends you a digest** of what it accomplished
 
@@ -23,8 +23,8 @@ All execution happens server-side via Claude Code's scheduled remote agent infra
 
 ### Prerequisites
 - Claude Pro subscription
-- The free [ntfy](https://ntfy.sh) app on your phone (for push notifications + replies)
-- GitHub account (for remote project access)
+- GitHub account (for remote project access **and** notifications — the agent opens an issue and you reply with a comment)
+- The GitHub mobile app or repo-watch notifications on, so the issue reaches your phone
 
 ### One-time setup (on your laptop)
 
@@ -37,18 +37,12 @@ git clone https://github.com/SaumiRah/accursed-tokens
 
 Edit the timezone if needed (default: `America/Toronto`). Everything else stays as-is.
 
-**3. Set environment variables in the Claude Code harness**
+**3. Notifications — nothing to configure**
 
-```
-NTFY_TOPIC          topic the agent publishes to — subscribe to it in the ntfy app to
-                    receive notifications (e.g. accursed-tokens-saumirah-notify)
-NTFY_REPLY_TOPIC    topic you publish replies to — the agent polls it for your /usage %
-                    (e.g. accursed-tokens-saumirah-reply)
-```
-
-Pick random-enough topic names to avoid collisions with other ntfy.sh users; they act as
-shared secrets since anyone who knows a topic name can read and post to it. To reply, post
-to the reply topic from the ntfy app (or `curl -d "42%" https://ntfy.sh/$NTFY_REPLY_TOPIC`).
+Notifications use GitHub Issues via the `gh` CLI, reusing the same GitHub auth the agent
+already uses to push commits. No env vars, no accounts, no secrets. Just make sure you're
+watching this repo / have GitHub mobile notifications on, so new issues reach your phone.
+The agent opens an issue with its plan; you reply by commenting (e.g. `42%`).
 
 **4. Fill in your projects and goals**
 

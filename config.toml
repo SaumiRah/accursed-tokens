@@ -19,23 +19,20 @@ stop_at_pct = 95.0
 subscription_tier = "pro"
 
 [notifications]
-# notify.py uses ntfy.sh (HTTPS push, no auth required) — set these in harness env vars:
+# notify.py talks to the user via GitHub Issues using the `gh` CLI.
+# No secrets, no config here, no env vars: it reuses the ambient GitHub auth
+# that the orchestrator already uses to push commits.
 #
-#   NTFY_TOPIC        — unique topic name you subscribe to in the ntfy app
-#                       (receive orchestrator notifications on your phone)
-#   NTFY_REPLY_TOPIC  — unique topic name you publish to in order to reply
-#                       (orchestrator polls this for your /usage % or redirects)
+# Mechanism:
+#   - send: opens an issue on this repo with the plan
+#   - poll: watches that issue's comments for your reply (e.g. "42%")
 #
 # SETUP (one-time):
-#   1. Install "ntfy" app on your phone (iOS/Android) — or use ntfy.sh in browser
-#   2. Subscribe to your chosen NTFY_TOPIC  (e.g. accursed-tokens-abc123-notify)
-#   3. To reply, publish to NTFY_REPLY_TOPIC via the ntfy app or:
-#        curl -d "42%" https://ntfy.sh/$NTFY_REPLY_TOPIC
+#   1. Make sure you're watching this repo / have GitHub mobile notifications on
+#      so new issues reach your phone.
+#   2. Reply by commenting on the issue from the GitHub app or web.
 #
-# Pick random-enough topic names to avoid collision with other ntfy.sh users.
-# Example:
-#   NTFY_TOPIC       = "accursed-tokens-saumirah-notify"
-#   NTFY_REPLY_TOPIC = "accursed-tokens-saumirah-reply"
-#
-# Note: Gmail SMTP/IMAP (ports 465/993) are blocked in the remote execution
-# environment. ntfy.sh uses HTTPS (port 443) which is allowed.
+# Why GitHub: Gmail SMTP/IMAP (ports 465/993) are blocked in the remote
+# execution environment, and ntfy.sh denylists the remote cloud IP (403).
+# GitHub's API works there (the agent already clones/pushes over it) and is
+# genuinely two-way via issue comments.
