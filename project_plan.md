@@ -10,7 +10,7 @@ Accursed Tokens is a weekly scheduled automation that runs entirely server-side 
 
 ### Remote-first design
 
-The system runs entirely server-side via CronCreate. The user needs a laptop only once for the initial setup. Thereafter, everything — scheduling, SMS notification, project work, and digest — happens remotely.
+The system runs entirely server-side via CronCreate. The user needs a laptop only once for the initial setup. Thereafter, everything — scheduling, email notification, project work, and digest — happens remotely.
 
 ```
 [CronCreate job — server-side]
@@ -18,23 +18,21 @@ The system runs entirely server-side via CronCreate. The user needs a laptop onl
      ▼
 [Remote Agent — Claude Code harness]
      │
-     ├─► read /usage → parse weekly % used
-     │
      ├─► read project_agenda.md (from GitHub) → pick project(s)
      │       └─► fallback: desires.md
      │
-     ├─► Twilio SMS: "{pct_used}% used (~N sessions left). Plan: [project]. Reply in 2h to redirect."
+     ├─► Gmail: "Plan: [project]. Reply with /usage % to pace work. 2h to redirect."
      │
-     ├─► Poll Twilio inbox every 5 min for 120 min
-     │       └─► if reply → parse and update plan
+     ├─► Poll sender Gmail inbox (IMAP) every 5 min for 120 min
+     │       └─► if reply → parse /usage %, redirect instructions, or "stop"
      │
      ├─► Clone target project repo → do work → commit + push → open PR if appropriate
      │       └─► repeat in new sessions until /usage ≥ 95%
      │
-     └─► Twilio SMS digest + update work_log.md + push to this repo
+     └─► Gmail digest + update work_log.md + push to this repo
 ```
 
-The remote agent is Claude Code itself — no Python runtime needed at execution time. Helper scripts (`calibrate.py`) run once on the laptop during setup.
+The remote agent is Claude Code itself — no Python runtime needed at execution time. Helper scripts (`calibrate.py`, `notify.py`) run once on the laptop during setup; `notify.py` is also called by the orchestrator at runtime.
 
 ---
 
@@ -49,8 +47,9 @@ The remote agent is Claude Code itself — no Python runtime needed at execution
 | `calibration_result.json` | Output of calibrate.py — committed so remote agent can read it |
 | `calibration_log.json` | Per-session pct_before/pct_after history for ongoing refinement |
 | `work_log.md` | Append-only log of every session's output |
-| `config.toml` | Phone number, cron schedule, stop threshold — committed, no secrets |
-| `.env` | Twilio secrets — NEVER committed; set as harness environment variables |
+| `config.toml` | Cron schedule, stop threshold — committed, no secrets |
+| `notify.py` | Gmail send + IMAP poll helpers used by the orchestrator |
+| `.env` | Gmail secrets — NEVER committed; set as harness environment variables |
 
 ---
 
@@ -58,7 +57,7 @@ The remote agent is Claude Code itself — no Python runtime needed at execution
 
 After setup, no laptop is required for any weekly run.
 
-1. **Twilio account**: Obtain `ACCOUNT_SID`, `AUTH_TOKEN`, a Twilio phone number. Add these as environment variables in the Claude Code harness settings (not stored in files).
+1. **Gmail accounts**: Create a dedicated sender Gmail account (e.g. `saumspam@gmail.com`) and generate app passwords for both the sender and your personal account. Add as environment variables in the Claude Code harness settings (not stored in files).
 
 2. **GitHub repo**: Push this project to GitHub so the remote agent can access it.
 
@@ -130,16 +129,20 @@ The remote agent follows this sequence each Tuesday:
 ### 3. NOTIFY
 ```
 Accursed Tokens activated.
-{pct_used:.0f}% used this week (~{sessions_estimated} sessions remaining).
 Plan: {project_name} — {short_description}.
-Reply to redirect. Auto-starting in 2 hours.
+
+Reply to this email within 2h to:
+- Give your current /usage % (e.g. "42%") so I can pace the work
+- Redirect to a different project
+- "stop" to cancel this week
+Or ignore this to let me run until I run out of tokens.
 ```
-Send via Twilio SMS to configured phone number.
+Send via `python notify.py send` using the sender Gmail account.
 
 ### 4. WAIT
-- Poll Twilio inbox every 5 minutes for up to 120 minutes
-- If a reply arrives from the user's number → parse intent → adjust selected project/goal
-- If no reply after 120 minutes → proceed with original plan
+- Poll sender Gmail inbox (IMAP) every 5 minutes for up to 120 minutes via `python notify.py poll`
+- Parse reply for: usage % → compute token budget; redirect → update selected project; "stop" → cancel
+- If no reply after 120 minutes → proceed with no token budget constraint
 
 ### 5. EXECUTE
 - Clone or access the target project repo (via GitHub)
@@ -154,9 +157,9 @@ Send via Twilio SMS to configured phone number.
 ```
 Accursed Tokens — done.
 Projects: {project_a} ✓, {project_b} (partial)
-Usage: {pct_now:.0f}% (was {pct_start:.0f}% at noon)
+See work_log.md on GitHub for details.
 ```
-Send via Twilio SMS. Append digest to `work_log.md` and push.
+Send via `python notify.py send`. Append digest to `work_log.md` and push.
 
 ---
 
@@ -203,33 +206,23 @@ Never schedule a new session when `/usage` ≥ `stop_at_pct` (default: 95.0). Th
 
 ## Notification Protocol
 
-**Send SMS** (Twilio REST API):
-```python
-from twilio.rest import Client
-client = Client(account_sid, auth_token)
-client.messages.create(to=user_phone, from_=twilio_number, body=message)
+All email sending and reply polling is handled by `notify.py` using Python's built-in `smtplib` and `imaplib` — no third-party packages needed.
+
+**Send email:**
+```bash
+sent_at=$(python notify.py send "subject" "body")
 ```
 
-**Poll for reply** (no webhook required — polling only):
-```python
-import time
-from datetime import datetime, timezone
-
-deadline = time.time() + 7200  # 2 hours
-while time.time() < deadline:
-    msgs = client.messages.list(to=twilio_number, date_sent_after=session_start)
-    replies = [m for m in msgs if m.from_ == user_phone]
-    if replies:
-        return replies[-1].body  # latest reply
-    time.sleep(300)  # check every 5 min
-return None  # timed out, proceed autonomously
+**Poll for reply:**
+```bash
+reply=$(python notify.py poll "subject" "$sent_at" 7200)
+# exits 0 with reply body, or exits 1 on timeout
 ```
 
 **Environment variables** (set in harness, never in committed files):
-- `TWILIO_ACCOUNT_SID` — Twilio account SID
-- `TWILIO_AUTH_TOKEN` — Twilio auth token
-- `TWILIO_FROM_NUMBER` — your Twilio phone number (E.164)
-- `USER_PHONE_NUMBER` — your personal phone number (E.164)
+- `SENDER_EMAIL` — Gmail address that sends notifications (e.g. `saumspam@gmail.com`)
+- `SENDER_APP_PASSWORD` — app password for the sender account
+- `RECIPIENT_EMAIL` — your personal Gmail address that receives notifications
 
 ---
 
