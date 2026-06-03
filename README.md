@@ -2,7 +2,7 @@
 
 A weekly scheduled automation that exhausts your remaining Claude Pro token allowance before it resets — so you actually get your money's worth.
 
-Every Tuesday at 12:00 PM, it wakes up, checks how many tokens you have left, texts you a proposed plan, waits up to 2 hours for your input, then gets to work. No laptop required.
+Every Tuesday at 12:00 PM, it wakes up, checks how many tokens you have left, emails you a proposed plan, waits up to 2 hours for your input, then gets to work. No laptop required.
 
 ---
 
@@ -11,9 +11,9 @@ Every Tuesday at 12:00 PM, it wakes up, checks how many tokens you have left, te
 1. **Activates** 18 hours before the weekly token reset (Tuesday 12:00 PM)
 2. **Assesses** remaining token budget via `/usage`
 3. **Picks a project** from [`project_agenda.md`](project_agenda.md), falling back to [`desires.md`](desires.md) if the agenda is empty
-4. **Texts you** a proposed plan via SMS — reply within 2 hours to redirect it, or let it decide
+4. **Emails you** a proposed plan — reply within 2 hours to redirect it, or let it decide
 5. **Does the work** autonomously across as many sessions as needed until usage hits ~95%
-6. **Texts you a digest** of what it accomplished
+6. **Emails you a digest** of what it accomplished
 
 All execution happens server-side via Claude Code's scheduled remote agent infrastructure. Projects are worked on via GitHub so nothing needs to be running locally.
 
@@ -23,7 +23,7 @@ All execution happens server-side via Claude Code's scheduled remote agent infra
 
 ### Prerequisites
 - Claude Pro subscription
-- Twilio account (for SMS notifications)
+- Gmail account with an app password (for email notifications)
 - GitHub account (for remote project access)
 
 ### One-time setup (on your laptop)
@@ -40,11 +40,9 @@ Edit the timezone if needed (default: `America/Toronto`). Everything else stays 
 **3. Set environment variables in the Claude Code harness**
 
 ```
-TWILIO_ACCOUNT_SID      your Twilio account SID
-TWILIO_AUTH_TOKEN       your Twilio auth token
-TWILIO_FROM_NUMBER      your Twilio phone number  (E.164: +16135550123)
-USER_PHONE_NUMBER       your personal phone number (E.164: +16135550123)
-```
+SENDER_EMAIL               Gmail address that sends notifications (e.g. saumspam@gmail.com)
+SENDER_APP_PASSWORD        app password for the sender account
+RECIPIENT_EMAIL            Gmail address that receives notifications (e.g. saumirah@gmail.com)```
 
 **4. Fill in your projects and goals**
 
@@ -56,7 +54,6 @@ USER_PHONE_NUMBER       your personal phone number (E.164: +16135550123)
 Measures your actual 5-hour and weekly token limits empirically (Anthropic doesn't publish them):
 
 ```bash
-pip install twilio
 python calibrate.py
 ```
 
