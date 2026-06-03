@@ -111,4 +111,14 @@ All output in `outputs/tabpls/`.
 - `notify.py` rewritten to use ntfy.sh (HTTPS)
 - `config.toml` updated with ntfy.sh setup instructions
 
+### Digest
+
+```
+Accursed Tokens — done (session 3, 2026-06-03).
+Projects: TabPls ✓ (MVP, 32/32 tests), Accursed Tokens notify.py ✓ (fixed)
+See outputs/tabpls/ on GitHub for all files.
+Action required: set up ntfy.sh before next Tuesday run (see config.toml).
+```
+
+
 
