@@ -1,0 +1,26 @@
+# Accursed Tokens — Configuration
+# Commit this file. Do NOT put secrets here — use environment variables.
+
+[schedule]
+# Weekly token reset: Wednesday ~01:30 AM
+reset_day = "wednesday"
+reset_time = "01:30"
+timezone = "Pacific Time"  # update to your local timezone
+
+# Cron fires 13 hours before reset: Tuesday 12:30 PM
+cron_expression = "30 12 * * TUE"
+
+[tokens]
+# Stop scheduling new sessions when /usage reaches this threshold.
+# Leaves a safety margin to avoid a mid-session cutoff.
+stop_at_pct = 95.0
+
+# Subscription tier — informational only; actual limits are measured by calibrate.py
+subscription_tier = "pro"
+
+[notifications]
+# All notification credentials go in environment variables, not here:
+#   TWILIO_ACCOUNT_SID     — your Twilio account SID
+#   TWILIO_AUTH_TOKEN      — your Twilio auth token
+#   TWILIO_FROM_NUMBER     — your Twilio phone number (E.164, e.g. +16135550123)
+#   USER_PHONE_NUMBER      — your personal phone number (E.164)
