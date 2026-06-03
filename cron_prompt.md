@@ -21,7 +21,7 @@ Draft a short plan (3–5 bullet points) for what you'll accomplish this session
 Send it via email, asking the user to reply with their current `/usage` percentage:
 
 ```bash
-sent_at=$(python notify.py send "Accursed Tokens — week of $(date '+%b %-d')" "$(cat <<'MSG'
+sent_at=$(python notify.py send "Accursed Tokens - week of $(date '+%b %-d')" "$(cat <<'MSG'
 Here's what I'm planning to work on this week:
 
 <your plan here>
@@ -38,7 +38,7 @@ MSG
 ## Step 3 — Wait for a reply (up to 2 hours)
 
 ```bash
-reply=$(python notify.py poll "Accursed Tokens — week of $(date '+%b %-d')" "$sent_at" 7200)
+reply=$(python notify.py poll "Accursed Tokens - week of $(date '+%b %-d')" "$sent_at" 7200)
 ```
 
 - Exit code 1 (timeout): no reply received. Do not proceed — send a follow-up email letting the user know you'll try again next week, then stop.
@@ -72,7 +72,7 @@ Append a session entry to `work_log.md`:
 ## Step 5 — Send a digest
 
 ```bash
-python notify.py send "Accursed Tokens — digest $(date '+%b %-d')" "$(cat <<'MSG'
+python notify.py send "Accursed Tokens - digest $(date '+%b %-d')" "$(cat <<'MSG'
 Here's what I got done today:
 
 <summary of work>
