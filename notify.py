@@ -43,8 +43,7 @@ def send(subject: str, body: str) -> datetime:
     msg.set_content(body)
 
     sent_at = datetime.now(timezone.utc)
-    with smtplib.SMTP("smtp.gmail.com", 587) as smtp:
-        smtp.starttls()
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
         smtp.login(sender, password)
         smtp.send_message(msg)
 
