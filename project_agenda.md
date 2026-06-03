@@ -43,7 +43,14 @@ Set `Status: done` when a project is complete — Claude will skip it automatica
 - **Goal**: A program that can reliably create accurate tablature at a reasonable speed. Ideally have a business model and plans to deploy/monitize it.
 - **Priority**: high
 - **Token appetite**: medium (50k–200k); mostly needs training time
-- **Status**: not started
+- **Status**: in progress
+
+**Session notes (2026-06-03):**
+- Full technical design + business model written (`outputs/tabpls/DESIGN.md`, `BUSINESS.md`)
+- Core pipeline implemented: `audio.py`, `detect.py`, `fretboard.py`, `tab.py`, `pipeline.py`
+- 32/32 unit tests pass (fretboard mapper + tab renderer)
+- CLI: `python src/pipeline.py transcribe song.mp3 [--separate] [--bpm 120] [--tuning drop_d]`
+- **Next session**: GuitarSet integration test, technique detection (bends/slides), web app scaffold
 
 ### Computer, surprise me 
 - **Repo**: TBD
@@ -71,6 +78,11 @@ Set `Status: done` when a project is complete — Claude will skip it automatica
 - **Priority**: high
 - **Token appetite**: small
 - **Status**: in progress
+
+**Session notes (2026-06-03):**
+- Fixed notify.py: replaced Gmail SMTP/IMAP (blocked in remote env) with ntfy.sh (HTTPS)
+- Updated config.toml with full ntfy.sh setup instructions
+- **Action required**: Set up ntfy.sh (see config.toml `[notifications]` section) before next scheduled run
 
 
 

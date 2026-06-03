@@ -19,7 +19,23 @@ stop_at_pct = 95.0
 subscription_tier = "pro"
 
 [notifications]
-# All notification credentials go in environment variables, not here:
-#   SENDER_EMAIL           — Gmail address that sends notifications (e.g. saumspam@gmail.com)
-#   SENDER_APP_PASSWORD    — app password for the sender account
-#   RECIPIENT_EMAIL        — Gmail address that receives notifications (e.g. saumirah@gmail.com)
+# notify.py uses ntfy.sh (HTTPS push, no auth required) — set these in harness env vars:
+#
+#   NTFY_TOPIC        — unique topic name you subscribe to in the ntfy app
+#                       (receive orchestrator notifications on your phone)
+#   NTFY_REPLY_TOPIC  — unique topic name you publish to in order to reply
+#                       (orchestrator polls this for your /usage % or redirects)
+#
+# SETUP (one-time):
+#   1. Install "ntfy" app on your phone (iOS/Android) — or use ntfy.sh in browser
+#   2. Subscribe to your chosen NTFY_TOPIC  (e.g. accursed-tokens-abc123-notify)
+#   3. To reply, publish to NTFY_REPLY_TOPIC via the ntfy app or:
+#        curl -d "42%" https://ntfy.sh/$NTFY_REPLY_TOPIC
+#
+# Pick random-enough topic names to avoid collision with other ntfy.sh users.
+# Example:
+#   NTFY_TOPIC       = "accursed-tokens-saumirah-notify"
+#   NTFY_REPLY_TOPIC = "accursed-tokens-saumirah-reply"
+#
+# Note: Gmail SMTP/IMAP (ports 465/993) are blocked in the remote execution
+# environment. ntfy.sh uses HTTPS (port 443) which is allowed.

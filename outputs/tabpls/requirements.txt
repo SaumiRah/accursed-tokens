@@ -1,0 +1,17 @@
+# TabPls dependencies
+# Install: pip install -r requirements.txt
+
+# Core pipeline
+librosa>=0.10.0
+numpy>=1.24.0
+soundfile>=0.12.1
+basic-pitch>=0.4.0
+
+# Source separation (optional — needed for --separate flag)
+# demucs>=4.0.0
+
+# Guitar Pro export (optional — Phase 2)
+# guitarpro>=0.11.0
+
+# Development
+pytest>=7.0

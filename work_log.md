@@ -48,3 +48,67 @@ OSError: [Errno 97] Address family not supported by protocol
 
 The simplest fix is option 4 (proceed without notification) or option 3 (replace notify.py with an HTTPS-based push service). Update `notify.py` to use `urllib.request` with an HTTPS API before the next scheduled run.
 
+---
+
+## 2026-06-03 (session 3)
+
+**Session start**: 2026-06-03
+**Selected project**: TabPls (high priority, not started)
+**Triggered by**: User manually
+
+### Infrastructure fixes
+
+**notify.py rewritten** — switched from Gmail SMTP/IMAP (TCP ports 465/993, blocked in
+remote environment) to ntfy.sh (HTTPS push, port 443, confirmed reachable).
+
+New mechanism:
+- `send()`: POST to `https://ntfy.sh/$NTFY_TOPIC` — user receives push notification on phone
+- `poll()`: GET `https://ntfy.sh/$NTFY_REPLY_TOPIC/json?poll=1&since=...` — user replies by
+  publishing to the reply topic
+
+**Action required before next automated run:**
+1. Install the ntfy app on your phone (iOS/Android) or use ntfy.sh in browser
+2. Choose unique topic names (e.g. `accursed-tokens-saumirah-notify` and
+   `accursed-tokens-saumirah-reply`)
+3. Set `NTFY_TOPIC` and `NTFY_REPLY_TOPIC` as environment variables in Claude Code harness
+   settings (Settings → Environment Variables)
+4. Subscribe to your `NTFY_TOPIC` in the ntfy app
+5. To reply: publish a message to `NTFY_REPLY_TOPIC` via the ntfy app or:
+   `curl -d "42%" https://ntfy.sh/YOUR_REPLY_TOPIC`
+
+**config.toml updated** with full setup instructions in the `[notifications]` section.
+
+### TabPls — session output
+
+All output in `outputs/tabpls/`.
+
+**Files created:**
+- `DESIGN.md` — full technical design: pipeline architecture, guitar theory constraints,
+  fretboard mapping DP algorithm, source separation, AMT (BasicPitch), evaluation metrics,
+  datasets (GuitarSet, DadaGP), development roadmap
+- `BUSINESS.md` — market analysis, revenue model (Free/Solo $5/Band $12), go-to-market
+  strategy, legal notes, production stack, milestones
+- `src/audio.py` — audio loading, normalization, Demucs source separation wrapper
+- `src/detect.py` — BasicPitch wrapper returning `NoteEvent` objects
+- `src/fretboard.py` — Viterbi DP fretboard mapper; handles chords, alternate tunings,
+  stretch/shift cost minimization
+- `src/tab.py` — ASCII guitar tab renderer (quantized + compact modes)
+- `src/pipeline.py` — end-to-end CLI (`tabpls transcribe input.mp3 [--separate] [--bpm N]`)
+- `tests/test_fretboard.py` — 21 unit tests for fretboard mapper
+- `tests/test_tab.py` — 11 unit tests for tab renderer
+- `requirements.txt`
+
+**Test results:** 32/32 passed
+
+**What's left for Phase 2:**
+- Download GuitarSet, run integration test on a real recording
+- Fine-tune BasicPitch on GuitarSet guitar-isolated audio
+- Technique detection (hammer-on, pull-off, bends)
+- Web app (FastAPI + Next.js) + GPU inference endpoint (Modal.com)
+
+### Accursed Tokens infrastructure
+
+- `notify.py` rewritten to use ntfy.sh (HTTPS)
+- `config.toml` updated with ntfy.sh setup instructions
+
+
