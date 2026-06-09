@@ -50,7 +50,15 @@ Set `Status: done` when a project is complete — Claude will skip it automatica
 - Core pipeline implemented: `audio.py`, `detect.py`, `fretboard.py`, `tab.py`, `pipeline.py`
 - 32/32 unit tests pass (fretboard mapper + tab renderer)
 - CLI: `python src/pipeline.py transcribe song.mp3 [--separate] [--bpm 120] [--tuning drop_d]`
-- **Next session**: GuitarSet integration test, technique detection (bends/slides), web app scaffold
+
+**Session notes (2026-06-09):**
+- Technique detection implemented (`src/techniques.py`): hammer-on (h), pull-off (p), bend (b), vibrato (~), slide-up (/), slide-down (\\)
+- Tab renderer updated to show technique annotations (e.g. `h7`, `7b9`, `7~`, `5/9`)
+- `src/pipeline.py` gains `detect_techniques=True` flag + `--no-techniques` CLI arg
+- GuitarSet evaluation framework (`tests/test_integration_guitarset.py`): P/R/F1 metrics, graceful skip when dataset absent
+- 66/66 unit tests pass (32 original + 16 technique + 18 eval metrics; 4 GuitarSet tests skip without dataset)
+- Web app scaffold: FastAPI backend (`web/backend/main.py`) + Next.js 14 frontend (`web/frontend/`)
+- **Next session**: Download GuitarSet + run `pytest --guitarset`, fine-tune BasicPitch on GuitarSet, deploy web app to Vercel + Modal.com
 
 ### Computer, surprise me 
 - **Repo**: TBD

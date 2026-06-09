@@ -22,6 +22,7 @@ import audio as _audio
 import detect as _detect
 import fretboard as _fb
 import tab as _tab
+import techniques as _tech
 
 
 def transcribe(
@@ -33,6 +34,7 @@ def transcribe(
     bpm: float = 120.0,
     time_sig: tuple[int, int] = (4, 4),
     compact: bool = False,
+    detect_techniques: bool = True,
     device: str = "cpu",
     out_wav: str | Path | None = None,
 ) -> str:
@@ -96,6 +98,11 @@ def transcribe(
     chord_groups = _fb.place(events, tuning=tuning)
     print(f"[tabpls] {len(chord_groups)} chord groups placed.", file=sys.stderr)
 
+    # Step 4b: Technique detection (optional)
+    if detect_techniques:
+        _tech.annotate(chord_groups)
+        print("[tabpls] Technique detection complete.", file=sys.stderr)
+
     # Step 5: Render
     if compact:
         return _tab.render_compact(chord_groups, bpm=bpm)
@@ -117,6 +124,7 @@ def _cli() -> None:
                    help="BasicPitch onset confidence threshold (0–1, default 0.50)")
     t.add_argument("--bpm", type=float, default=120.0, help="Song tempo in BPM (default 120)")
     t.add_argument("--compact", action="store_true", help="Use compact non-quantized rendering")
+    t.add_argument("--no-techniques", action="store_true", help="Disable technique detection (h/p/b/~)")
     t.add_argument("--device", default="cpu", help="Device for Demucs: cpu or cuda")
     t.add_argument("--out", metavar="FILE", help="Write tab to FILE instead of stdout")
     t.add_argument("--out-wav", metavar="WAV", help="Save preprocessed guitar audio to WAV")
@@ -131,6 +139,7 @@ def _cli() -> None:
             onset_threshold=args.onset_threshold,
             bpm=args.bpm,
             compact=args.compact,
+            detect_techniques=not args.no_techniques,
             device=args.device,
             out_wav=args.out_wav,
         )

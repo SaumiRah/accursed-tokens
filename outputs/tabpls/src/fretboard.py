@@ -55,6 +55,10 @@ class Placement:
     fret: int            # 0 = open, 1–MAX_FRET
     confidence: float
     pitch_bends: list[float] = field(default_factory=list)
+    # Technique annotation (set by techniques.annotate())
+    technique_incoming: str = ""       # "h" | "p" | "/" | "\\" (from prev note on this string)
+    technique_self: str = ""           # "b" | "~" (property of this note)
+    bend_target_fret: int | None = None  # fret equivalent of bend target pitch
 
     @property
     def is_open(self) -> bool:

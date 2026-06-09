@@ -37,8 +37,24 @@ def _fret_str(fret: int) -> str:
     return str(fret)
 
 
+def _placement_cell(p: Placement) -> str:
+    """
+    Render a placement as its tab cell string, including technique annotations.
+
+    Examples: "7", "h7", "p5", "/9", "7b9", "7~", "h7b9"
+    """
+    s = p.technique_incoming + str(p.fret)
+    if p.technique_self == "b":
+        s += "b"
+        if p.bend_target_fret is not None:
+            s += str(p.bend_target_fret)
+    elif p.technique_self == "~":
+        s += "~"
+    return s
+
+
 def _measure_lines(
-    slots: list[dict[int, int]],  # list of {string_1based → fret} per time slot
+    slots: list[dict[int, Placement]],  # list of {string_1based → Placement} per time slot
     col_width: int,
 ) -> list[str]:
     """Render one measure as 6 tab lines."""
@@ -47,9 +63,9 @@ def _measure_lines(
         for s_idx in range(N_STRINGS):
             string_num = s_idx + 1  # 1-indexed
             if string_num in slot:
-                fret_s = _fret_str(slot[string_num])
-                padding = GAP * (col_width - len(fret_s) - 1)
-                lines[s_idx] += GAP + padding + fret_s
+                cell = _placement_cell(slot[string_num])
+                padding = GAP * (col_width - len(cell) - 1)
+                lines[s_idx] += GAP + padding + cell
             else:
                 lines[s_idx] += GAP * col_width
     return lines
@@ -91,8 +107,8 @@ def render(
     slots_per_measure = beats * (16 // beat_denom)  # 16th-note grid slots per measure
     slot_duration = measure_duration / slots_per_measure
 
-    # Build measure → slot → {string → fret} mapping
-    measure_slots: list[list[dict[int, int]]] = [
+    # Build measure → slot → {string → Placement} mapping
+    measure_slots: list[list[dict[int, Placement]]] = [
         [{} for _ in range(slots_per_measure)] for _ in range(n_measures)
     ]
 
@@ -103,14 +119,12 @@ def render(
         measure_idx = min(measure_idx, n_measures - 1)
         slot_idx = min(slot_idx, slots_per_measure - 1)
         for p in group.placements:
-            measure_slots[measure_idx][slot_idx][p.string] = p.fret
+            measure_slots[measure_idx][slot_idx][p.string] = p
 
-    # Determine max fret width for column sizing
-    all_frets = [
-        p.fret for g in chord_groups for p in g.placements
-    ]
-    max_fret_chars = max(len(_fret_str(f)) for f in all_frets) if all_frets else 1
-    col_width = max(MIN_COL_WIDTH, max_fret_chars + 2)
+    # Determine max cell width for column sizing (includes technique annotations)
+    all_cells = [_placement_cell(p) for g in chord_groups for p in g.placements]
+    max_cell_chars = max(len(c) for c in all_cells) if all_cells else 1
+    col_width = max(MIN_COL_WIDTH, max_cell_chars + 2)
 
     output_rows: list[str] = []
 
@@ -147,11 +161,11 @@ def render_compact(
     lines = [STRING_LABELS[s] + BAR_SEP for s in range(N_STRINGS)]
 
     for group in chord_groups:
-        fret_map = {p.string: p.fret for p in group.placements}
+        placement_map = {p.string: p for p in group.placements}
         cells = []
         for s_idx in range(N_STRINGS):
             s = s_idx + 1
-            cells.append(_fret_str(fret_map[s]) if s in fret_map else GAP)
+            cells.append(_placement_cell(placement_map[s]) if s in placement_map else GAP)
         max_len = max(len(c) for c in cells)
         for s_idx in range(N_STRINGS):
             pad = GAP * (max_len - len(cells[s_idx]))

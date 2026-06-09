@@ -50,6 +50,59 @@ The simplest fix is option 4 (proceed without notification) or option 3 (replace
 
 ---
 
+## 2026-06-09
+
+**Session start**: 2026-06-09
+**Selected project**: TabPls (high priority, in progress)
+**Triggered by**: User manual trigger (remote agent session)
+**Token budget**: not provided (no /usage reply to notification issue)
+
+### Work completed
+
+**Technique detection** (`src/techniques.py` — new):
+- Bend (`b`): detected from BasicPitch `pitch_bends` data; peak deviation ≥ 0.4 semitones; `bend_target_fret` computed (e.g. fret 7 bent 2 semitones → target 9)
+- Vibrato (`~`): oscillating pitch_bends with ≥3 zero-crossings and peak-to-peak ≥0.3 semitones
+- Hammer-on (`h`): ascending consecutive notes on same string, onset gap < 150ms
+- Pull-off (`p`): descending consecutive notes on same string, onset gap < 150ms
+- Slide-up (`/`): same-string movement ≥4 frets, onset gap < 300ms
+- Slide-down (`\`): same, descending
+
+**Tab renderer updated** (`src/tab.py`):
+- New `_placement_cell(p)` function builds cell strings with technique notation: `h7`, `7b9`, `7~`, `5/9`, `9\5`
+- Slots dict now stores `Placement` objects (not raw fret ints) so technique info carries through
+- Column width calculation accounts for technique annotation characters
+
+**Pipeline** (`src/pipeline.py`):
+- Added `detect_techniques: bool = True` parameter
+- Added `--no-techniques` CLI flag
+- Technique annotation runs between fretboard.place() and tab.render()
+
+**GuitarSet evaluation framework** (`tests/test_integration_guitarset.py`):
+- `evaluate_transcription()`: note-level P/R/F1 with configurable onset (50ms) and pitch (±1 semitone) tolerances
+- `pytest --guitarset /path/to/dataset` runs live evaluation; tests skip gracefully without the dataset
+- `--slow` marker for batch evaluation (10 recordings, writes CSV)
+- Offline unit tests (TestEvalMetrics): 9 tests for the metric engine, no dataset needed
+
+**Web app scaffold** (`web/`):
+- `web/backend/main.py`: FastAPI app with `POST /transcribe` (multipart upload), `GET /health`, `GET /tunings`; CORS, 50MB limit, file type validation
+- `web/backend/requirements.txt`: FastAPI + uvicorn
+- `web/frontend/`: Next.js 14 App Router, TypeScript, Tailwind CSS
+  - `components/UploadForm.tsx`: drag-and-drop upload, tuning/BPM/techniques settings
+  - `components/TabDisplay.tsx`: monospace display with Copy and Download buttons
+  - `app/page.tsx`: main page with loading spinner, error display, technique notation guide
+  - `app/layout.tsx`, `globals.css`: dark GitHub-style theme
+
+**Test results**: 66 passed, 4 skipped (GuitarSet dataset tests — expected), 0 failed
+
+### Next steps
+
+- Download GuitarSet from zenodo.org/record/3371780 → `pytest --guitarset /path`
+- Fine-tune BasicPitch on GuitarSet guitar-isolated audio (guitar_hex_cln)
+- Deploy: `vercel` for frontend, `modal deploy` for GPU inference backend
+- Guitar Pro (.gp5) export
+
+---
+
 ## 2026-06-03 (session 3)
 
 **Session start**: 2026-06-03
