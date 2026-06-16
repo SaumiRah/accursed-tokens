@@ -173,5 +173,23 @@ See outputs/tabpls/ on GitHub for all files.
 Action required: set up ntfy.sh before next Tuesday run (see config.toml).
 ```
 
+---
 
+## 2026-06-16 ABORT
+
+**Session start**: 2026-06-16
+**Selected project**: TabPls (high priority, in progress) — selection completed, but execution never started because the NOTIFY preflight failed.
+
+**Reason for abort**: `gh auth status` fails — the remote execution environment for this session has no authenticated GitHub CLI identity, and none of the `ACCURSED_TOKENS_NOTIFY_GITHUB_APP_*` secrets that `notify.py` falls back from are set either. Per the orchestrator spec, execution cannot proceed without a working notification channel.
+
+**Diagnostics:**
+- `gh` was not even installed in this container (`command not found`); installing it via `apt-get install -y gh` succeeded (network egress to `archive.ubuntu.com` is allowed), but `gh auth status` then reported `You are not logged into any GitHub hosts.`
+- No `GH_TOKEN`, `GITHUB_TOKEN`, `ACCURSED_TOKENS_NOTIFY_GITHUB_APP_ID`, `ACCURSED_TOKENS_NOTIFY_GITHUB_APP_PRIVATE_KEY`, or `ACCURSED_TOKENS_NOTIFY_GITHUB_APP_PRIVATE_KEY_PATH` present in the environment.
+- Direct egress to `api.github.com` returns HTTP 403 (Varnish) and to `cli.github.com` returns `403 host_not_allowed` from the sandbox's network proxy — this session's network policy does not appear to permit unauthenticated/direct calls to those hosts.
+- This session's git remote is itself proxied through a local helper (`http://local_proxy@127.0.0.1:.../git/...`), which handles push/pull/clone auth transparently but exposes no token usable by `gh` or for generic GitHub REST calls.
+- This session's system prompt states explicitly that direct `gh`/GitHub API access is unavailable here and that GitHub interactions should go through a `github` MCP server's tools instead — a different mechanism than what `notify.py` was built against.
+
+**Action required before next automated run:** Either (a) provision the `ACCURSED_TOKENS_NOTIFY_GITHUB_APP_*` secrets (App ID + private key) in the harness environment so `notify.py`'s installation-token path works regardless of ambient `gh` auth, or (b) confirm whether the production cron-triggered runtime actually provides ambient `gh` auth (this interactive/manual session may simply lack it) before assuming `notify.py` is broken outright. If neither holds, `notify.py` will need a rewrite against the `github` MCP server tools (`mcp__github__issue_write`, `mcp__github__add_issue_comment`, etc.) to match what's actually available in this environment.
+
+No project work was performed this session — the notify preflight check blocked execution before SELECT/EXECUTE began.
 
