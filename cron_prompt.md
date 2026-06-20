@@ -18,7 +18,7 @@ If the agenda has no eligible projects, read `desires.md` and synthesize a concr
 
 Draft a short plan (3–5 bullet points) for what you'll accomplish this session.
 
-Open it as a GitHub issue (via `notify.py`, which uses the `gh` CLI — SMTP/IMAP are blocked and ntfy.sh denylists the cloud IP, but GitHub works in the remote env). `notify.py` authors the issue as a **GitHub App bot** (so GitHub actually pushes you — it won't notify you about issues you author yourself); this needs `ACCURSED_TOKENS_NOTIFY_GITHUB_APP_ID` and the App private key in the env. The user gets a GitHub notification and replies with a comment on the issue, which `notify.py poll` picks up. Verify base auth with `gh auth status` first.
+Send it as a Telegram message (via `notify.py`, which uses the Telegram Bot API — SMTP/IMAP are blocked and ntfy.sh denylists the cloud IP, but a plain HTTPS call to `api.telegram.org` works once it's on the environment's network egress allowlist). This needs `ACCURSED_TOKENS_NOTIFY_TELEGRAM_BOT_TOKEN` and `ACCURSED_TOKENS_NOTIFY_TELEGRAM_CHAT_ID` in the env. The user gets a push notification and replies in the same chat, which `notify.py poll` picks up.
 
 ```bash
 sent_at=$(python notify.py send "Accursed Tokens - week of $(date '+%b %-d')" "$(cat <<'MSG'
@@ -26,7 +26,7 @@ Here's what I'm planning to work on this week:
 
 <your plan here>
 
-Before I get started, open Claude Code and run /usage — then reply to this issue with a comment containing the percentage used (e.g. "42%"). You can also redirect me to a different project in the same comment.
+Before I get started, open Claude Code and run /usage — then reply here with the percentage used (e.g. "42%"). You can also redirect me to a different project in the same reply.
 
 If I don't hear back in 2 hours, I'll check in again next week.
 MSG
@@ -41,14 +41,14 @@ MSG
 reply=$(python notify.py poll "Accursed Tokens - week of $(date '+%b %-d')" "$sent_at" 7200)
 ```
 
-- Exit code 1 (timeout): no reply received. Do not proceed — open a follow-up issue letting the user know you'll try again next week, then stop.
+- Exit code 1 (timeout): no reply received. Do not proceed — send a follow-up message letting the user know you'll try again next week, then stop.
 - Exit code 0: parse the reply for:
   - A usage percentage (e.g. "42%", "42", "42 percent") → calculate `tokens_remaining = (1 - pct/100) * weekly_limit` using `weekly_limit` from `calibration_result.json`
   - Any redirect instructions (different project, specific task, etc.)
 
-Load `stop_at_pct` from `config.toml` (default 95%). If the reported usage is already at or above `stop_at_pct`, open a short issue saying the budget is nearly exhausted and stop.
+Load `stop_at_pct` from `config.toml` (default 95%). If the reported usage is already at or above `stop_at_pct`, send a short message saying the budget is nearly exhausted and stop.
 
-Once you've extracted the reply (or after a timeout), close the plan issue so it doesn't linger:
+Once you've extracted the reply (or after a timeout), send an acknowledgement so the user knows you've started:
 
 ```bash
 python notify.py close "Accursed Tokens - week of $(date '+%b %-d')" "Got it — starting work. I'll follow up with a digest."

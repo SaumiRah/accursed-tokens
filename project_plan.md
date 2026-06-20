@@ -2,7 +2,7 @@
 
 ## Overview
 
-Accursed Tokens is a weekly scheduled automation that runs entirely server-side via Claude Code's remote agent infrastructure. It activates every Tuesday at 12:00 PM — 18 hours before the Wednesday 06:00 AM weekly token reset — assesses remaining token budget, notifies the user by opening a GitHub issue, waits up to 2 hours for direction, then autonomously works through a curated project agenda until the weekly token allowance is exhausted. No laptop required at runtime; all project work targets GitHub-hosted repos so the remote agent can clone, commit, and push without local filesystem access.
+Accursed Tokens is a weekly scheduled automation that runs entirely server-side via Claude Code's remote agent infrastructure. It activates every Tuesday at 12:00 PM — 18 hours before the Wednesday 06:00 AM weekly token reset — assesses remaining token budget, notifies the user via a Telegram message, waits up to 2 hours for direction, then autonomously works through a curated project agenda until the weekly token allowance is exhausted. No laptop required at runtime; all project work targets GitHub-hosted repos so the remote agent can clone, commit, and push without local filesystem access.
 
 ---
 
@@ -21,15 +21,15 @@ The system runs entirely server-side via CronCreate. The user needs a laptop onl
      ├─► read project_agenda.md (from GitHub) → pick project(s)
      │       └─► fallback: desires.md
      │
-     ├─► Open GitHub issue: "Plan: [project]. Comment /usage % to pace work. 2h to redirect."
+     ├─► Send Telegram message: "Plan: [project]. Reply /usage % to pace work. 2h to redirect."
      │
-     ├─► Poll the issue's comments (gh CLI) every 5 min for 120 min
+     ├─► Poll the chat (Telegram Bot API) every 5 min for 120 min
      │       └─► if reply → parse /usage %, redirect instructions, or "stop"
      │
      ├─► Clone target project repo → do work → commit + push → open PR if appropriate
      │       └─► repeat in new sessions until /usage ≥ 95%
      │
-     └─► Open digest issue + update work_log.md + push to this repo
+     └─► Send digest message + update work_log.md + push to this repo
 ```
 
 The remote agent is Claude Code itself — no Python runtime needed at execution time. Helper scripts (`calibrate.py`, `notify.py`) run once on the laptop during setup; `notify.py` is also called by the orchestrator at runtime.
@@ -48,7 +48,7 @@ The remote agent is Claude Code itself — no Python runtime needed at execution
 | `calibration_log.json` | Per-session pct_before/pct_after history for ongoing refinement |
 | `work_log.md` | Append-only log of every session's output |
 | `config.toml` | Cron schedule, stop threshold — committed, no secrets |
-| `notify.py` | GitHub-issue send + comment-poll helpers (via `gh` CLI) used by the orchestrator |
+| `notify.py` | Telegram send + reply-poll helpers (via the Bot API) used by the orchestrator |
 
 ---
 
@@ -56,7 +56,7 @@ The remote agent is Claude Code itself — no Python runtime needed at execution
 
 After setup, no laptop is required for any weekly run.
 
-1. **Notifications**: The agent notifies you via GitHub Issues. Because GitHub suppresses notifications for your *own* activity, the issue must be authored by a *different* identity — a **GitHub App** acting as a bot. One-time setup: register a GitHub App with **Issues: Read & Write**, install it on this repo, generate a private key, and expose three env vars to the remote runtime — `ACCURSED_TOKENS_NOTIFY_GITHUB_APP_ID`, `ACCURSED_TOKENS_NOTIFY_GITHUB_APP_PRIVATE_KEY` (or `ACCURSED_TOKENS_NOTIFY_GITHUB_APP_PRIVATE_KEY_PATH`), and optionally `ACCURSED_TOKENS_NOTIFY_GITHUB_APP_INSTALLATION_ID` (auto-discovered if omitted). The bot then @-mentions and assigns you, which *does* push to your phone. Make sure GitHub mobile notifications are enabled, and reply by commenting on the issue. (If the App env vars are absent, `notify.py` falls back to the ambient `gh` identity — the CLI still works, but you won't get a push.)
+1. **Notifications**: The agent notifies you via a Telegram bot. One-time setup: message [@BotFather](https://t.me/BotFather) → `/newbot` → copy the bot token; message your new bot once so it can see your chat; then read `result[0].message.chat.id` from `https://api.telegram.org/bot<TOKEN>/getUpdates` to get your chat id. Expose two env vars to the remote runtime — `ACCURSED_TOKENS_NOTIFY_TELEGRAM_BOT_TOKEN` and `ACCURSED_TOKENS_NOTIFY_TELEGRAM_CHAT_ID`. Unlike GitHub Issues, no separate bot identity workaround is needed — a Telegram bot message always pushes a notification. **Add `api.telegram.org` to the remote environment's network egress allowlist** — without it every call fails with `403 Host not in allowlist`. Reply by typing in the chat.
 
 2. **GitHub repo**: Push this project to GitHub so the remote agent can access it.
 
@@ -130,16 +130,16 @@ The remote agent follows this sequence each Tuesday:
 Accursed Tokens activated.
 Plan: {project_name} — {short_description}.
 
-Comment on this issue within 2h to:
+Reply within 2h to:
 - Give your current /usage % (e.g. "42%") so I can pace the work
 - Redirect to a different project
 - "stop" to cancel this week
 Or ignore this to let me run until I run out of tokens.
 ```
-Send via `python notify.py send` (opens a GitHub issue via the `gh` CLI).
+Send via `python notify.py send` (Telegram Bot API).
 
 ### 4. WAIT
-- Poll the issue's comments (via `gh`) every 5 minutes for up to 120 minutes via `python notify.py poll`
+- Poll the chat (Telegram Bot API) every 5 minutes for up to 120 minutes via `python notify.py poll`
 - Parse reply for: usage % → compute token budget; redirect → update selected project; "stop" → cancel
 - If no reply after 120 minutes → proceed with no token budget constraint
 
@@ -205,26 +205,29 @@ Never schedule a new session when `/usage` ≥ `stop_at_pct` (default: 95.0). Th
 
 ## Notification Protocol
 
-All notification sending and reply polling is handled by `notify.py` via the `gh` CLI: `send` opens a GitHub issue (subject → title, body → body) and `poll` watches that issue's comments for a reply newer than the send time. This rides on GitHub's API, which works in the remote environment — unlike SMTP/IMAP (raw TCP, blocked) or ntfy.sh (denylists the remote cloud IP with a 403). It's genuinely two-way.
+All notification sending and reply polling is handled by `notify.py` via the Telegram Bot API: `send` posts a message to your chat (subject + body, as plain text) and `poll` watches that chat for a reply newer than the send time. This rides on a single HTTPS host (`api.telegram.org`), unlike SMTP/IMAP (raw TCP, blocked) or ntfy.sh (denylists the remote cloud IP with a 403). It's genuinely two-way.
 
-**Identity:** GitHub does not notify you about your own actions, so an issue opened under your account never reaches your phone. `notify.py` therefore authenticates as a **GitHub App** (a distinct bot identity): it signs a 10-minute JWT with the App's private key, exchanges it for a 1-hour installation token, and opens the issue as `your-app[bot]`. The bot assigns/@-mentions you, and because the actor differs from the recipient, GitHub pushes the notification. The installation token is minted fresh per run and handed to `gh` via `GH_TOKEN`; the only durable secret is the App private key.
+**Identity:** unlike GitHub (which suppresses notifications for your *own* activity), a Telegram bot message always pushes a notification to the chat it's sent to — no separate bot-identity workaround is needed.
 
-**Send notification (open issue):**
+**Send notification (chat message):**
 ```bash
 sent_at=$(python notify.py send "subject" "body")
 ```
 
-**Poll for reply (issue comments):**
+**Poll for reply (chat messages):**
 ```bash
 reply=$(python notify.py poll "subject" "$sent_at" 7200)
 # exits 0 with reply body, or exits 1 on timeout
 ```
 
-**Auth:** App mode needs `ACCURSED_TOKENS_NOTIFY_GITHUB_APP_ID` and the private key (`ACCURSED_TOKENS_NOTIFY_GITHUB_APP_PRIVATE_KEY`
-or `ACCURSED_TOKENS_NOTIFY_GITHUB_APP_PRIVATE_KEY_PATH`) in the remote environment; `ACCURSED_TOKENS_NOTIFY_GITHUB_APP_INSTALLATION_ID`
-is auto-discovered from the repo if unset. `gh` itself must still be authenticated (for
-`{owner}/{repo}` resolution); App mode overrides only the token used for the API calls.
-Verify base auth with `gh auth status`.
+**Auth:** needs `ACCURSED_TOKENS_NOTIFY_TELEGRAM_BOT_TOKEN` (from @BotFather) and
+`ACCURSED_TOKENS_NOTIFY_TELEGRAM_CHAT_ID` (from `https://api.telegram.org/bot<TOKEN>/getUpdates`
+after messaging the bot once) in the remote environment.
+
+**Network egress:** the remote execution environment uses allowlist-based egress.
+`api.telegram.org` must be added to the environment's network egress allowlist, or every
+call fails with `403 Host not in allowlist` — the same failure mode that previously broke
+the GitHub Issues and ntfy.sh mechanisms.
 
 ---
 

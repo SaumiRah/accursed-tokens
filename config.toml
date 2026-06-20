@@ -19,20 +19,28 @@ stop_at_pct = 95.0
 subscription_tier = "pro"
 
 [notifications]
-# notify.py talks to the user via GitHub Issues using the `gh` CLI.
-# No secrets, no config here, no env vars: it reuses the ambient GitHub auth
-# that the orchestrator already uses to push commits.
+# notify.py talks to the user via a Telegram bot (Bot API over HTTPS).
 #
 # Mechanism:
-#   - send: opens an issue on this repo with the plan
-#   - poll: watches that issue's comments for your reply (e.g. "42%")
+#   - send: posts a message to your chat with the bot
+#   - poll: watches that chat for your reply (e.g. "42%")
 #
 # SETUP (one-time):
-#   1. Make sure you're watching this repo / have GitHub mobile notifications on
-#      so new issues reach your phone.
-#   2. Reply by commenting on the issue from the GitHub app or web.
+#   1. In Telegram, message @BotFather -> /newbot -> copy the bot token.
+#   2. Message your new bot anything (e.g. "hi") so it knows your chat.
+#   3. Visit https://api.telegram.org/bot<TOKEN>/getUpdates and read
+#      result[0].message.chat.id — that's your chat id.
+#   4. Set these env vars in the harness environment (secrets, not here):
+#        ACCURSED_TOKENS_NOTIFY_TELEGRAM_BOT_TOKEN
+#        ACCURSED_TOKENS_NOTIFY_TELEGRAM_CHAT_ID
+#   5. IMPORTANT: add api.telegram.org to the environment's network egress
+#      allowlist. Without this, every call fails with "Host not in allowlist"
+#      (403) — the same failure mode that previously broke ntfy.sh and the
+#      GitHub Issues mechanism. Reply by typing in the chat from the Telegram
+#      app or web.
 #
-# Why GitHub: Gmail SMTP/IMAP (ports 465/993) are blocked in the remote
-# execution environment, and ntfy.sh denylists the remote cloud IP (403).
-# GitHub's API works there (the agent already clones/pushes over it) and is
-# genuinely two-way via issue comments.
+# Why Telegram: Gmail SMTP/IMAP (ports 465/993) need raw TCP and are blocked
+# in the remote execution environment; ntfy.sh's cloud IP got denylisted
+# (403); GitHub Issues needed `gh` auth some remote sessions didn't have.
+# Telegram's Bot API is a single HTTPS host, reachable with plain HTTP
+# requests once allowlisted, and genuinely two-way via chat messages.

@@ -1,301 +1,166 @@
 """
-Two-way notifications for Accursed Tokens via GitHub Issues (over the `gh` CLI).
+Two-way notifications for Accursed Tokens via Telegram (Bot API over plain HTTPS).
 
-Why GitHub: the remote orchestrator environment blocks raw TCP (SMTP/IMAP),
-and ntfy.sh denylists its cloud IP — but GitHub works there (the agent already
-clones and pushes over it). So notifications ride on GitHub Issues:
+Why Telegram: every earlier mechanism broke on this project's restrictive remote
+network policy — Gmail SMTP/IMAP needs raw TCP sockets (blocked), ntfy.sh's cloud
+IP got denylisted (403), and GitHub Issues needed a `gh`-authenticated identity
+that some remote sessions simply didn't have (403 from the sandbox's egress
+proxy on api.github.com/cli.github.com, no ambient `gh auth`). Telegram's Bot
+API is a single HTTPS host (api.telegram.org) reachable with nothing but
+urllib and a bot token — no CLI, no OAuth dance, and no separate "actor"
+identity to fake: a bot message always pushes a notification, so there's no
+GitHub-style suppression of "your own" activity to work around.
 
-  send(subject, body) -> opens an issue (you get a GitHub mobile push)
-  poll(...)           -> polls that issue's comments for your reply
+  send(subject, body) -> sends a Telegram message to your chat (push to phone)
+  poll(...)           -> polls getUpdates for your reply in that chat
+  close(...)          -> sends a short follow-up message (chats don't have a
+                         "closed" state like GitHub issues; this just keeps the
+                         orchestrator's existing call sites working unchanged)
 
-Reply by commenting on the issue (e.g. "42%") from the GitHub app or web.
+Reply by just typing in the chat with the bot (e.g. "42%") from the Telegram
+app or web.
 
-Identity (why a GitHub App): GitHub suppresses notifications for your *own*
-activity, so an issue authored by your account never pushes to your phone — even
-if it @-mentions and assigns you. The fix is to author the issue as a *different*
-identity. This module does that via a GitHub App: it signs a short-lived JWT
-with the App's private key, exchanges it for a 1-hour installation token, and
-opens the issue as `your-app[bot]`. That bot then assigns/@-mentions you, which
-GitHub *does* push because the actor (the bot) differs from the recipient (you).
+IMPORTANT — network egress allowlist: this project's remote execution
+environments use allowlist-based egress. `api.telegram.org` must be added to
+the environment's network egress settings or every call below fails with
+"Host not in allowlist" (403), the same way api.github.com/ntfy.sh did before
+they were replaced. Add it under the harness's network/egress configuration
+before the first scheduled run.
 
-App configuration (env vars; if ACCURSED_TOKENS_NOTIFY_GITHUB_APP_ID is unset, falls back to the
-ambient `gh` identity, which won't notify you but keeps the CLI working):
-  ACCURSED_TOKENS_NOTIFY_GITHUB_APP_ID                  - the App's numeric ID (required to enable App mode)
-  ACCURSED_TOKENS_NOTIFY_GITHUB_APP_PRIVATE_KEY         - the App private key PEM contents, OR
-  ACCURSED_TOKENS_NOTIFY_GITHUB_APP_PRIVATE_KEY_PATH    - path to the App private key .pem file
-  ACCURSED_TOKENS_NOTIFY_GITHUB_APP_INSTALLATION_ID     - optional; auto-discovered from the repo if unset
-
-Either way the actual Issues API calls go through `gh` (it substitutes
-{owner}/{repo} from cwd); App mode just hands `gh` the minted installation
-token via GH_TOKEN. Run from within the accursed-tokens checkout.
+Setup (one-time, via @BotFather in Telegram):
+  1. Message @BotFather -> /newbot -> follow the prompts -> copy the bot token
+  2. Message your new bot anything (e.g. "hi") so it can see your chat
+  3. Visit https://api.telegram.org/bot<TOKEN>/getUpdates to find your chat id
+     (result[0].message.chat.id)
+  4. Set env vars in the harness environment:
+       ACCURSED_TOKENS_NOTIFY_TELEGRAM_BOT_TOKEN
+       ACCURSED_TOKENS_NOTIFY_TELEGRAM_CHAT_ID
 
 Usage (CLI):
   python notify.py send  "<subject>" "<body>"
   python notify.py poll  "<subject>" "<sent_utc_iso>" [timeout_seconds]
-  python notify.py close "<subject-or-number>" ["<closing comment>"]
+  python notify.py close "<subject>" ["<closing comment>"]
 
-poll exits 0 with the reply body, or exits 1 on timeout. close closes the issue
-(by title or number), optionally leaving a final comment, so resolved plan/digest
-issues don't accumulate.
+poll exits 0 with the reply body, or exits 1 on timeout.
 """
 
-import base64
 import json
 import os
-import subprocess
 import sys
-import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
-from pathlib import Path
 
-# Within one orchestrator run, send() records the issue number here so poll()
-# can find it without a title search. Kept in tmp so it never lands in the repo.
-_STATE_FILE = Path(tempfile.gettempdir()) / "accursed_notify_issue.json"
-
-# GitHub user to @-mention and assign on each issue so they get a notification.
-# This only pings you when the issue is authored by a *different* identity than
-# you — which App mode (below) ensures by authoring as the App's bot account.
-MENTION = os.environ.get("NOTIFY_MENTION", "SaumiRah")
-
-_API_ROOT = "https://api.github.com"
-# Cached installation token: {"token": str, "expires": epoch_seconds}. Minting
-# costs two API round-trips, so we reuse the 1-hour token within a run.
-_INSTALL_TOKEN = {"token": None, "expires": 0.0}
+_API_ROOT = "https://api.telegram.org"
+_MAX_MESSAGE_LEN = 4096  # Telegram's hard limit on sendMessage text length
 
 
-def _app_mode() -> bool:
-    """True if GitHub App credentials are configured (else fall back to gh auth)."""
-    return bool(os.environ.get("ACCURSED_TOKENS_NOTIFY_GITHUB_APP_ID"))
+def _bot_token() -> str:
+    token = os.environ.get("ACCURSED_TOKENS_NOTIFY_TELEGRAM_BOT_TOKEN")
+    if not token:
+        raise RuntimeError(
+            "ACCURSED_TOKENS_NOTIFY_TELEGRAM_BOT_TOKEN is not set — create a bot via "
+            "@BotFather in Telegram and set its token in the harness environment"
+        )
+    return token
 
 
-def _private_key_pem() -> bytes:
-    """Load the App private key from env: inline PEM (ACCURSED_TOKENS_NOTIFY_GITHUB_APP_PRIVATE_KEY,
-    used for the remote run via the harness env block) or a local file path
-    (ACCURSED_TOKENS_NOTIFY_GITHUB_APP_PRIVATE_KEY_PATH, used for local dev)."""
-    pem = os.environ.get("ACCURSED_TOKENS_NOTIFY_GITHUB_APP_PRIVATE_KEY")
-    if pem:
-        # When the PEM is stored as a JSON string its newlines may survive as the
-        # literal two-character sequence "\n"; restore real newlines so it parses.
-        if "\\n" in pem and "\n" not in pem:
-            pem = pem.replace("\\n", "\n")
-        return pem.encode()
-    path = os.environ.get("ACCURSED_TOKENS_NOTIFY_GITHUB_APP_PRIVATE_KEY_PATH")
-    if path:
-        return Path(path).expanduser().read_bytes()
-    raise RuntimeError(
-        "App mode needs ACCURSED_TOKENS_NOTIFY_GITHUB_APP_PRIVATE_KEY or ACCURSED_TOKENS_NOTIFY_GITHUB_APP_PRIVATE_KEY_PATH"
-    )
+def _chat_id() -> str:
+    chat_id = os.environ.get("ACCURSED_TOKENS_NOTIFY_TELEGRAM_CHAT_ID")
+    if not chat_id:
+        raise RuntimeError(
+            "ACCURSED_TOKENS_NOTIFY_TELEGRAM_CHAT_ID is not set — message your bot once, "
+            "then read result[0].message.chat.id from "
+            "https://api.telegram.org/bot<TOKEN>/getUpdates"
+        )
+    return chat_id
 
 
-def _b64url(data: bytes) -> str:
-    return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
-
-
-def _sign_rs256(message: bytes, key_pem: bytes) -> bytes:
-    """RS256-sign `message`. Prefer `cryptography`; fall back to the openssl CLI."""
+def _tg_api(method: str, params: dict | None = None, http_method: str = "POST"):
+    """Minimal Telegram Bot API call via urllib (no extra dependencies)."""
+    url = f"{_API_ROOT}/bot{_bot_token()}/{method}"
+    data = None
+    if http_method == "GET":
+        if params:
+            url += "?" + urllib.parse.urlencode(params)
+    elif params:
+        data = json.dumps(params).encode()
+    req = urllib.request.Request(url, data=data, method=http_method)
+    if data:
+        req.add_header("Content-Type", "application/json")
     try:
-        from cryptography.hazmat.primitives import hashes, serialization
-        from cryptography.hazmat.primitives.asymmetric import padding
-
-        key = serialization.load_pem_private_key(key_pem, password=None)
-        return key.sign(message, padding.PKCS1v15(), hashes.SHA256())
-    except ImportError:
-        with tempfile.NamedTemporaryFile("wb", suffix=".pem", delete=False) as kf:
-            kf.write(key_pem)
-            key_path = kf.name
-        try:
-            res = subprocess.run(
-                ["openssl", "dgst", "-sha256", "-sign", key_path],
-                input=message, capture_output=True,
-            )
-            if res.returncode != 0:
-                raise RuntimeError(f"openssl signing failed: {res.stderr.decode().strip()}")
-            return res.stdout
-        finally:
-            os.unlink(key_path)
-
-
-def _app_jwt() -> str:
-    """Build a short-lived JWT that authenticates as the App itself."""
-    app_id = os.environ["ACCURSED_TOKENS_NOTIFY_GITHUB_APP_ID"]
-    now = int(time.time())
-    # iat backdated 60s for clock skew; exp within GitHub's 10-minute ceiling.
-    header = {"alg": "RS256", "typ": "JWT"}
-    payload = {"iat": now - 60, "exp": now + 540, "iss": app_id}
-    signing_input = (
-        _b64url(json.dumps(header, separators=(",", ":")).encode())
-        + "."
-        + _b64url(json.dumps(payload, separators=(",", ":")).encode())
-    )
-    sig = _sign_rs256(signing_input.encode(), _private_key_pem())
-    return signing_input + "." + _b64url(sig)
-
-
-def _http_json(url, method="GET", token=None, bearer=None):
-    """Minimal GitHub REST call via urllib (used only for App auth round-trips)."""
-    req = urllib.request.Request(url, method=method)
-    req.add_header("Accept", "application/vnd.github+json")
-    req.add_header("X-GitHub-Api-Version", "2022-11-28")
-    req.add_header("User-Agent", "accursed-tokens-notify")
-    if bearer:
-        req.add_header("Authorization", f"Bearer {bearer}")
-    elif token:
-        req.add_header("Authorization", f"token {token}")
-    try:
-        with urllib.request.urlopen(req) as r:
-            out = r.read().decode()
-            return json.loads(out) if out else None
+        with urllib.request.urlopen(req, timeout=30) as r:
+            out = json.loads(r.read().decode())
     except urllib.error.HTTPError as e:
         detail = e.read().decode().strip()
-        raise RuntimeError(f"{method} {url} -> {e.code}: {detail}") from None
-
-
-def _repo_slug() -> str:
-    """Derive owner/repo from the origin remote (for installation discovery)."""
-    res = subprocess.run(
-        ["git", "config", "--get", "remote.origin.url"],
-        capture_output=True, text=True,
-    )
-    url = res.stdout.strip()
-    # Handle git@github.com:owner/repo.git and https://github.com/owner/repo.git
-    slug = url.split("github.com")[-1].lstrip(":/").removesuffix(".git")
-    if slug.count("/") != 1:
-        raise RuntimeError(f"could not parse owner/repo from remote url {url!r}")
-    return slug
-
-
-def _installation_token() -> str:
-    """Mint (and cache) a 1-hour installation token from the App credentials."""
-    now = time.time()
-    if _INSTALL_TOKEN["token"] and now < _INSTALL_TOKEN["expires"] - 300:
-        return _INSTALL_TOKEN["token"]
-
-    jwt = _app_jwt()
-    inst_id = os.environ.get("ACCURSED_TOKENS_NOTIFY_GITHUB_APP_INSTALLATION_ID")
-    if not inst_id:
-        # Discover the installation on this repo using the App JWT.
-        inst = _http_json(
-            f"{_API_ROOT}/repos/{_repo_slug()}/installation", bearer=jwt
-        )
-        inst_id = str(inst["id"])
-
-    tok = _http_json(
-        f"{_API_ROOT}/app/installations/{inst_id}/access_tokens",
-        method="POST", bearer=jwt,
-    )
-    _INSTALL_TOKEN["token"] = tok["token"]
-    _INSTALL_TOKEN["expires"] = _parse_gh_time(tok["expires_at"]).timestamp()
-    return tok["token"]
-
-
-def _gh_api(path, method="GET", fields=None):
-    """Call `gh api`; gh substitutes {owner}/{repo} from cwd. In App mode, hand
-    gh the minted installation token via GH_TOKEN so issues are authored by the
-    App's bot (which is what lets GitHub notify you); otherwise use ambient auth."""
-    cmd = ["gh", "api", "-X", method, path]
-    for k, v in (fields or {}).items():
-        cmd += ["-f", f"{k}={v}"]
-    env = None
-    if _app_mode():
-        env = {**os.environ, "GH_TOKEN": _installation_token()}
-    res = subprocess.run(cmd, capture_output=True, text=True, env=env)
-    if res.returncode != 0:
-        raise RuntimeError(
-            f"gh api {method} {path} failed: {res.stderr.strip() or res.stdout.strip()}"
-        )
-    out = res.stdout.strip()
-    return json.loads(out) if out else None
-
-
-def _parse_gh_time(s):
-    return datetime.fromisoformat(s.replace("Z", "+00:00"))
+        raise RuntimeError(f"{http_method} {method} -> {e.code}: {detail}") from None
+    if not out.get("ok"):
+        raise RuntimeError(f"{method} failed: {out}")
+    return out["result"]
 
 
 def send(subject: str, body: str) -> datetime:
-    """Open a GitHub issue and return the UTC datetime it was created."""
+    """Send a Telegram message and return the UTC datetime it was sent."""
     sent_at = datetime.now(timezone.utc)
-    full_body = f"{body}\n\ncc @{MENTION}" if MENTION else body
-    issue = _gh_api("repos/{owner}/{repo}/issues", "POST",
-                    {"title": subject, "body": full_body})
-    # Best-effort: also assign the user (another notification trigger). Ignore
-    # failures so a non-assignable user never blocks the notification itself.
-    if MENTION:
-        try:
-            _gh_api(f"repos/{{owner}}/{{repo}}/issues/{issue['number']}/assignees",
-                    "POST", {"assignees[]": MENTION})
-        except Exception as e:
-            print(f"[notify] could not assign @{MENTION}: {e}", file=sys.stderr)
-    try:
-        _STATE_FILE.write_text(json.dumps({"subject": subject, "number": issue["number"]}))
-    except Exception:
-        pass
+    text = f"{subject}\n\n{body}" if body else subject
+    while text:
+        chunk, text = text[:_MAX_MESSAGE_LEN], text[_MAX_MESSAGE_LEN:]
+        _tg_api("sendMessage", {"chat_id": _chat_id(), "text": chunk})
     return sent_at
-
-
-def _find_issue_number(subject: str) -> int:
-    # Prefer the number recorded by the matching send().
-    try:
-        st = json.loads(_STATE_FILE.read_text())
-        if st.get("subject") == subject and st.get("number"):
-            return st["number"]
-    except Exception:
-        pass
-    # Fall back to the newest issue whose title matches the subject.
-    issues = _gh_api(
-        "repos/{owner}/{repo}/issues?state=all&sort=created&direction=desc&per_page=50"
-    )
-    for i in issues or []:
-        if i.get("title") == subject and "pull_request" not in i:
-            return i["number"]
-    raise RuntimeError(f"no issue found with title {subject!r}")
 
 
 def poll(subject: str, sent_at: datetime, timeout: int = 7200) -> str | None:
     """
-    Poll the issue's comments for a reply created at/after sent_at.
-    Returns the latest such reply body, or None if the timeout (seconds) expires.
+    Poll the chat for a reply sent at/after sent_at.
+    Returns the latest such reply's text, or None if the timeout (seconds) expires.
     """
-    number = _find_issue_number(subject)
-    # The issue is freshly created, so any comment is a reply; the small
-    # negative buffer just absorbs clock skew vs GitHub's second-resolution times.
     cutoff = sent_at.timestamp() - 5
     deadline = time.time() + timeout
+    chat_id = str(_chat_id())
     interval = min(300, max(30, timeout // 24))
 
     while True:
         try:
-            comments = _gh_api(
-                f"repos/{{owner}}/{{repo}}/issues/{number}/comments?per_page=100"
+            updates = _tg_api(
+                "getUpdates",
+                {"timeout": 0, "allowed_updates": json.dumps(["message"])},
+                http_method="GET",
             )
             replies = [
-                c for c in (comments or [])
-                if _parse_gh_time(c["created_at"]).timestamp() >= cutoff
+                u for u in updates
+                if str(u.get("message", {}).get("chat", {}).get("id")) == chat_id
+                and u["message"].get("date", 0) >= cutoff
+                and u["message"].get("text")
             ]
             if replies:
-                replies.sort(key=lambda c: c["created_at"])
-                return (replies[-1].get("body") or "").strip()
+                replies.sort(key=lambda u: u["message"]["date"])
+                latest = replies[-1]
+                # Ack past this update so future polls don't replay it.
+                try:
+                    _tg_api(
+                        "getUpdates",
+                        {"offset": latest["update_id"] + 1, "timeout": 0},
+                        http_method="GET",
+                    )
+                except Exception:
+                    pass
+                return latest["message"]["text"].strip()
         except Exception as e:
-            print(f"[notify] github poll error: {e}", file=sys.stderr)
+            print(f"[notify] telegram poll error: {e}", file=sys.stderr)
 
         if time.time() >= deadline:
             return None
         time.sleep(interval)
 
 
-def close(subject_or_number, comment: str | None = None) -> int:
-    """Close an issue (by title or issue number), optionally leaving a final
-    comment first. Lets the orchestrator tidy up resolved plan/digest issues so
-    they don't pile up week over week. Returns the closed issue number."""
-    s = str(subject_or_number)
-    number = int(s) if s.isdigit() else _find_issue_number(s)
+def close(subject: str, comment: str | None = None) -> None:
+    """Send a short follow-up message. Chats have no 'closed' state like GitHub
+    issues did, so this just keeps the orchestrator's existing call sites
+    (`notify.py close ...` after a plan is acknowledged) working unchanged."""
     if comment:
-        _gh_api(f"repos/{{owner}}/{{repo}}/issues/{number}/comments", "POST",
-                {"body": comment})
-    _gh_api(f"repos/{{owner}}/{{repo}}/issues/{number}", "PATCH", {"state": "closed"})
-    return number
+        _tg_api("sendMessage", {"chat_id": _chat_id(), "text": comment})
 
 
 if __name__ == "__main__":
@@ -315,9 +180,9 @@ if __name__ == "__main__":
         print(reply)
 
     elif cmd == "close":
-        target = sys.argv[2]  # issue title or number
+        target = sys.argv[2]
         comment = sys.argv[3] if len(sys.argv) > 3 else None
-        print(close(target, comment))
+        close(target, comment)
 
     else:
         print(__doc__)
