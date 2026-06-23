@@ -193,3 +193,45 @@ Action required: set up ntfy.sh before next Tuesday run (see config.toml).
 
 No project work was performed this session — the notify preflight check blocked execution before SELECT/EXECUTE began.
 
+---
+
+## 2026-06-23 NO REPLY
+
+**Session start**: 2026-06-23 19:04 UTC (Tue 12:04 PM Pacific — on schedule)
+**Selected project**: TabPls (high priority, in progress) — GuitarSet download attempt, Guitar Pro (.gp5) export, pipeline/web app hardening per the 2026-06-09 "next steps".
+
+### Infra: notify.py's `gh` path is confirmed broken in this remote/MCP session type; switched to the `github` MCP server tools
+
+This continues the diagnosis from the 2026-06-16 ABORT. This time `gh` could be installed (`apt-get install -y gh` succeeded) and `GH_TOKEN`/`GITHUB_TOKEN` *are* present in the environment and do authenticate — `gh api user` and a raw `curl -H "Authorization: token $GH_TOKEN" https://api.github.com/user` both return 200 as `SaumiRah`. But repo-scoped calls fail:
+
+```
+$ gh api repos/SaumiRah/accursed-tokens
+{"message":"GitHub access is not enabled for this session. An org admin must
+connect the Claude GitHub App for this organization.","documentation_url":
+"https://docs.anthropic.com/en/docs/claude-code/github-actions"}
+```
+
+That response shape (and `docs.anthropic.com` URL) is the agent proxy intercepting the call, not GitHub itself — confirming part (b) of the 06-16 action item: this session type's network policy blocks `gh`/raw REST for repo operations outright, regardless of token validity. `notify.py` as written cannot work here.
+
+**Resolution this session**: bypassed `notify.py` and called the `github` MCP server tools (`mcp__github__issue_write`, `mcp__github__issue_read`, `mcp__github__add_issue_comment`) directly from the orchestrator agent instead of shelling out. This worked — issue #10 was created successfully.
+
+**New caveat found — likely explains the no-reply below**: `mcp__github__get_me` shows the MCP connection is authenticated as **SaumiRah's own account**, not a separate bot identity:
+```json
+{"login":"SaumiRah", "id":77644712, ...}
+```
+This is exactly the failure mode `notify.py`'s docstring warns about: "GitHub suppresses notifications for your own activity, so an issue authored by your account never pushes to your phone — even if it @-mentions and assigns you." Issue #10 (below) was created and self-assigned by `SaumiRah` via this MCP identity, so it may never have generated a mobile push at all, independent of whether the user was available to reply.
+
+**Action required before next run**: Either (a) get the `ACCURSED_TOKENS_NOTIFY_GITHUB_APP_*` secrets provisioned so a true bot identity authors the issue (now actually actionable — `notify.py`'s App-mode code path is unchanged and should still work if those secrets are set, since App auth happens at the JWT/installation-token level, separate from the proxy restriction observed here — though this hasn't been verified in this session type and may hit the same proxy wall), or (b) accept GitHub issues as a "check when convenient" channel rather than a phone-push channel, and have the user proactively check `github.com/SaumiRah/accursed-tokens/issues` on/after Tuesdays, or (c) re-home notify on a channel this session's proxy doesn't intercept (the proxy denylist appears scoped to direct GitHub REST egress, not necessarily other HTTPS APIs — worth re-testing ntfy.sh from *this* session type specifically, since the 06-16 finding that ntfy denylists "the remote cloud IP" may have been from a different network policy/session type than this one).
+
+### NOTIFY
+
+Opened issue [#10](https://github.com/SaumiRah/accursed-tokens/issues/10) "Accursed Tokens - week of Jun 23" at `2026-06-23T19:05:09Z` via the MCP path above. Asked for `/usage` %, offered redirect to another agenda project, or "stop".
+
+### WAIT
+
+Polled `mcp__github__issue_read` (`get_comments`) every 10 minutes for 2 hours (12 checks, 19:05–21:07 UTC). No comment was posted on issue #10 in that window.
+
+### Outcome
+
+Per the orchestrator spec, a WAIT timeout with no reply means: log NO REPLY and stop — no project work performed this run. **TabPls status in `project_agenda.md` is unchanged** (still "in progress", same next-steps as the 2026-06-09 session). Issue #10 left open in case of a late reply.
+
